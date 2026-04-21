@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # --- Model aliases ---
     # Map canonical Anthropic model names → Vertex publisher model IDs.
-    # Keep this list explicit — we want to know exactly what we're routing.
+    # Keep this list explicit; we want to know exactly what we're routing.
     # Hermes/Claude-Code typically request `claude-sonnet-4-5-20250929`; Vertex
     # uses `claude-sonnet-4-5@20250929`. The proxy translates.
     anthropic_model_aliases: dict[str, str] = {

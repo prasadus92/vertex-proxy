@@ -50,7 +50,7 @@ class TokenManager:
     def token(self) -> str:
         """Current access token. Raises if uninitialised."""
         if self._credentials is None or self._credentials.token is None:
-            raise RuntimeError("TokenManager not initialised — call start() first")
+            raise RuntimeError("TokenManager not initialised; call start() first")
         return self._credentials.token
 
     async def start(self) -> None:
@@ -78,7 +78,7 @@ class TokenManager:
                 self._project_id,
             )
 
-        # Initial refresh — blocks until we have a token.
+        # Initial refresh; blocks until we have a token.
         await self._do_refresh()
         self._refresh_task = asyncio.create_task(self._refresh_loop(), name="token-refresh")
 
@@ -126,9 +126,9 @@ class TokenManager:
                 # If we got here without timeout, stop was requested.
                 return
             except TimeoutError:
-                # Normal path — time to refresh.
+                # Normal path: time to refresh.
                 try:
                     await self._do_refresh()
                 except Exception as exc:  # noqa: BLE001
                     logger.error("token refresh failed: %s", exc, exc_info=True)
-                    # Don't crash the loop — try again next interval.
+                    # Don't crash the loop; try again next interval.

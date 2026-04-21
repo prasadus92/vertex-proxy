@@ -19,12 +19,21 @@ custom_providers:
     base_url: http://127.0.0.1:8787/openai
     transport: openai_chat
 
-# Use Claude Haiku 4.5 on Vertex as the global fallback for your primary model
+# All-Gemini fallback: stays on GCP credit coverage (first-party billing, not
+# Marketplace). Different quota pool from Flash primary, so quota exhaustion
+# still fails over cleanly.
 fallback_model:
-  provider: vertex-anthropic
-  model: claude-haiku-4-5-20250929
+  provider: vertex-gemini
+  model: gemini-2.5-pro
 
-# Or fall back to a cheaper MaaS model (requires GCP Marketplace enablement)
+# Alternative: Claude Haiku 4.5 on Vertex. Higher quality, but billed via
+# GCP Marketplace, so promotional credits typically don't apply. Uncomment
+# if you have a billing account that can absorb the cash cost.
+# fallback_model:
+#   provider: vertex-anthropic
+#   model: claude-haiku-4-5-20250929
+
+# Alternative: cheaper MaaS model (also Marketplace-billed in most cases).
 # fallback_model:
 #   provider: vertex-maas
 #   model: kimi-k2.5

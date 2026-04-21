@@ -1,10 +1,10 @@
-"""vertex-proxy — FastAPI app.
+"""vertex-proxy FastAPI app.
 
 Exposes:
-  - POST /anthropic/v1/messages          — Anthropic-compatible, forwards to Vertex
-  - POST /gemini/v1beta/models/{m}:generateContent — Gemini-compatible, forwards to Vertex
-  - GET  /health                         — liveness + token status
-  - GET  /v1/models                      — list routable models
+  - POST /anthropic/v1/messages                    : Anthropic-compatible, forwards to Vertex.
+  - POST /gemini/v1beta/models/{m}:generateContent : Gemini-compatible, forwards to Vertex.
+  - GET  /health                                   : liveness + token status.
+  - GET  /v1/models                                : list routable models.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             cfg.project_id = token_mgr.project_id
         if not cfg.project_id:
             raise RuntimeError(
-                "no GCP project_id — set VERTEX_PROXY_PROJECT_ID "
+                "no GCP project_id: set VERTEX_PROXY_PROJECT_ID "
                 "or use a service-account key that includes project_id"
             )
         logger.info("vertex-proxy ready; project=%s", cfg.project_id)
@@ -68,7 +68,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, Any]:
         try:
-            # Try to get a token — proves auth is working.
+            # Try to get a token; proves auth is working.
             await token_mgr.get_token()
             return {"status": "ok", "project": cfg.project_id}
         except Exception as exc:  # noqa: BLE001
@@ -373,6 +373,6 @@ def _passthrough_response(resp: httpx.Response) -> JSONResponse:
     try:
         payload = resp.json()
     except json.JSONDecodeError:
-        # Not JSON — forward as text wrapped.
+        # Not JSON; forward as text wrapped.
         payload = {"raw": resp.text[:4000]}
     return JSONResponse(status_code=resp.status_code, content=payload)

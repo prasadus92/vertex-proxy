@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-A small, local-only proxy that bridges **any tool speaking the Anthropic Messages API, Gemini API, or OpenAI Chat Completions API** to **Google Cloud Vertex AI** — so you can point existing clients at Vertex without changing their code.
+A small, local-only proxy that bridges **any tool speaking the Anthropic Messages API, Gemini API, or OpenAI Chat Completions API** to **Google Cloud Vertex AI**, so you can point existing clients at Vertex without changing their code.
 
 ## What this is for
 
@@ -14,7 +14,7 @@ You have a tool (Claude Code, Hermes Agent, opencode, Cline, Continue.dev, a cus
 - `generativelanguage.googleapis.com`
 - any OpenAI-compatible endpoint
 
-You want that same tool to hit Vertex AI instead — maybe because you want to burn GCP credits, unify billing, or get higher quotas than the public APIs offer.
+You want that same tool to hit Vertex AI instead, maybe because you want to burn GCP credits, unify billing, or get higher quotas than the public APIs offer.
 
 The problem: Vertex uses **short-lived OAuth access tokens** from a service-account key. Most tools expect a static `Authorization: Bearer xxx` header. Nobody wants to rebuild auth in every client.
 
@@ -75,14 +75,14 @@ curl -X POST http://127.0.0.1:8787/gemini/v1beta/models/gemini-2.5-flash:generat
 | `POST /anthropic/v1/messages` | Anthropic Messages API | `publishers/anthropic/models/{model}:rawPredict` |
 | `POST /gemini/v1beta/models/{m}:{action}` | Gemini generateContent API | `publishers/google/models/{m}:{action}` |
 | `POST /openai/v1/chat/completions` | OpenAI Chat Completions | Vertex MaaS partner models (Kimi, GLM, MiniMax, Qwen, Grok) |
-| `GET /v1/models` | — | Lists routable models |
-| `GET /health` | — | Liveness + auth check |
+| `GET /v1/models` | - | Lists routable models |
+| `GET /health` | - | Liveness + auth check |
 
 Streaming is supported on Anthropic and Gemini routes.
 
 ## Pre-configured models
 
-All aliases live in [`vertex_proxy/config.py`](vertex_proxy/config.py) — extend as needed.
+All aliases live in [`vertex_proxy/config.py`](vertex_proxy/config.py); extend as needed.
 
 **Anthropic** (on Vertex, `us-east5` by default)
 - `claude-sonnet-4-5-20250929` → `claude-sonnet-4-5@20250929`
@@ -119,20 +119,20 @@ Add to `~/.hermes/config.yaml`:
 
 ```yaml
 custom_providers:
+  - name: vertex-gemini
+    base_url: http://127.0.0.1:8787/gemini
+    transport: openai_chat
+
   - name: vertex-anthropic
     base_url: http://127.0.0.1:8787/anthropic
     transport: anthropic_messages
 
-  - name: vertex-gemini
-    base_url: http://127.0.0.1:8787/gemini
-    transport: openai_chat   # if Hermes OpenAI-compat; else see docs
-
 fallback_model:
-  provider: vertex-anthropic
-  model: claude-haiku-4-5-20250929
+  provider: vertex-gemini
+  model: gemini-2.5-pro
 ```
 
-Zero Hermes source changes required.
+Zero Hermes source changes required. Picks up the existing `custom_providers` mechanism.
 
 ### opencode / Cline / any Anthropic-SDK client
 
@@ -156,7 +156,7 @@ Stop:
 launchctl unload ~/Library/LaunchAgents/ai.hermes.vertex-proxy.plist
 ```
 
-For Linux, the same pattern works with systemd — see [`examples/systemd.service`](examples/systemd.service).
+For Linux, the same pattern works with systemd; see [`examples/systemd.service`](examples/systemd.service).
 
 ## Configuration reference
 
@@ -164,7 +164,7 @@ All settings accept `VERTEX_PROXY_` env var prefix or CLI flags.
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `VERTEX_PROXY_CREDENTIALS_PATH` | — | Service-account JSON path (falls back to ADC) |
+| `VERTEX_PROXY_CREDENTIALS_PATH` | - | Service-account JSON path (falls back to ADC) |
 | `VERTEX_PROXY_PROJECT_ID` | inferred from key | GCP project ID |
 | `VERTEX_PROXY_ANTHROPIC_REGION` | `us-east5` | Region for Claude |
 | `VERTEX_PROXY_GEMINI_REGION` | `us-central1` | Region for Gemini |
@@ -189,7 +189,7 @@ If credit-burn is your goal, point vertex-proxy at Gemini. If billing unificatio
 
 ## Security
 
-vertex-proxy binds to `127.0.0.1` by default and **ships with no authentication**. It's designed as a local-loopback shim — anyone who can reach it can spend your GCP credits via your service account.
+vertex-proxy binds to `127.0.0.1` by default and **ships with no authentication**. It's designed as a local-loopback shim; anyone who can reach it can spend your GCP credits via your service account.
 
 Do not expose it to a public interface. If you need remote access, put it behind a reverse proxy with proper auth (nginx + basic auth, Tailscale, Cloud Run with IAP, etc.).
 
@@ -215,4 +215,4 @@ MIT. See [LICENSE](LICENSE).
 
 ## Credits
 
-Built by [Prasad Subrahmanya](https://github.com/prasadus92) as part of solving the "Hermes fallback model" problem for [Luminik](https://luminik.io). Extracted into a standalone tool because the shim turned out to be useful beyond Hermes.
+Built by [Prasad Subrahmanya](https://github.com/prasadus92) as part of solving the "Hermes fallback model" problem for [Luminik](https://luminik.io), then extracted into a standalone tool because the shim turned out to be useful beyond Hermes.

@@ -17,7 +17,7 @@ python -m venv .venv
 .venv/bin/pytest
 ```
 
-Tests are pure unit / mocked — they don't hit real GCP. Integration smoke tests against live Vertex AI live in `tests/integration/` and require real credentials (run manually, not in CI).
+Tests are pure unit / mocked; they don't hit real GCP. Integration smoke tests against live Vertex AI live in `tests/integration/` and require real credentials (run manually, not in CI).
 
 ## Running locally against real Vertex
 
