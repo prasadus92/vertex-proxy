@@ -195,15 +195,70 @@ Do not expose it to a public interface. If you need remote access, put it behind
 
 ## Status
 
-- [x] Anthropic Messages API → Vertex Claude
-- [x] Gemini generateContent API → Vertex Gemini
-- [x] OpenAI Chat Completions → Vertex MaaS partner models
-- [x] Streaming on Anthropic + Gemini routes
-- [x] Automatic token refresh
-- [x] launchd + systemd service recipes
-- [ ] Response translation for MaaS models that differ from OpenAI spec
-- [ ] Built-in auth on the proxy (for remote access scenarios)
-- [ ] Prometheus metrics endpoint
+- [x] Anthropic Messages API → Vertex Claude (with streaming)
+- [x] Gemini generateContent API → Vertex Gemini (with streaming)
+- [x] OpenAI Chat Completions → Vertex Gemini via Vertex's OpenAI-compat layer
+- [x] OpenAI Chat Completions → Vertex MaaS partner models (Kimi, GLM, MiniMax, Qwen, Grok)
+- [x] Multiple URL shapes accepted for OpenAI client compatibility (`/v1/chat/completions`, `/chat/completions`, `/openai/v1/chat/completions`)
+- [x] Automatic GCP service-account token refresh
+- [x] launchd (macOS) + systemd (Linux) service recipes
+- [x] Dockerfile + docker-compose for containerized deploy
+- [x] Optional bearer-token auth on the proxy itself (for remote deploys)
+- [x] Prometheus metrics endpoint at `/metrics`
+- [x] 13 unit tests, GitHub Actions CI on Python 3.11 + 3.12
+
+### Tested with
+- [x] Hermes Agent — verified end-to-end with live Gemini 2.5 Flash dispatch
+- [x] Claude Code CLI — via `ANTHROPIC_BASE_URL` env
+- [x] Direct `curl` against all routes
+
+## Troubleshooting
+
+### 404 "model not found" on Claude routes
+
+Most Vertex AI Claude model endpoints require one-time enablement in Model Garden. Go to https://console.cloud.google.com/vertex-ai/publishers/anthropic/model-garden and click ENABLE on the specific model (Sonnet, Opus, Haiku). Accept the Marketplace T&Cs. Your service account can then call them.
+
+Note: GCP promotional credits typically don't cover Marketplace models. See "A word on GCP credits" above.
+
+### 404 "model not found" on MaaS routes (Kimi, GLM, MiniMax, Qwen, Grok)
+
+Same as Claude: Vertex partner models require Model Garden enablement per model. Additionally, the MaaS path in `config.py` is a best-effort guess at Vertex's URL shape for these partners. If you hit 404s after enablement, check the "How to use" tab on the model's page in Model Garden and update the `maas_model_aliases` entry with the exact path fragment Google shows.
+
+### 401 / 403 on all routes
+
+Your service account lacks `roles/aiplatform.user`. Grant it:
+```
+gcloud projects add-iam-policy-binding YOUR_PROJECT \
+  --member="serviceAccount:YOUR_SA@YOUR_PROJECT.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+```
+
+### Gemini 2.5 returns empty content with `reasoning_tokens` populated
+
+Gemini 2.5 models use an internal "thinking" budget that counts against `max_tokens`. If `max_tokens` is too low, the model may use all its budget on thinking and return no visible output. Raise `max_tokens` to at least 100 for anything beyond trivial replies.
+
+### Request works with `curl` but fails from my OpenAI client
+
+Your client is probably sending requests to a URL shape the shim didn't expect. The shim accepts `/v1/chat/completions`, `/chat/completions`, and `/openai/v1/chat/completions` for OpenAI-compatible traffic. If your client sends something else, file an issue with the exact URL shape and we'll add it.
+
+### Token refresh errors in logs
+
+The background refresh task logs errors but doesn't crash the process. If you see repeated refresh failures, check:
+1. Service account JSON path is correct (`VERTEX_PROXY_CREDENTIALS_PATH`)
+2. Machine clock is in sync (GCP JWT exchange is clock-sensitive)
+3. Service account isn't disabled or rotated in GCP IAM
+
+## Comparison with alternatives
+
+| Tool | What it does | Fit |
+|---|---|---|
+| **vertex-proxy** (this) | Bridge existing Anthropic/Gemini/OpenAI clients to Vertex AI with auto-auth | You already use a tool with configurable base URL and want to point it at Vertex without rewriting auth |
+| **LiteLLM** | Full-featured multi-provider router with caching, budgets, observability | Managing many providers centrally with policies; heavier dependency |
+| **openai-compat-server** (various) | OpenAI shape over arbitrary backend | Similar to one route of vertex-proxy; doesn't handle GCP SA auth natively |
+| **Vertex AI Python SDK** | Direct first-party Google SDK | You're writing new code and want to talk Vertex directly |
+| **Anthropic Python SDK with Vertex backend** | First-party SDK with Vertex mode flag | You're writing new Anthropic code and control the client |
+
+Use vertex-proxy when you have an **existing** tool you can't modify and need to redirect its traffic to Vertex.
 
 ## Contributing
 
@@ -215,4 +270,4 @@ MIT. See [LICENSE](LICENSE).
 
 ## Credits
 
-Built by [Prasad Subrahmanya](https://github.com/prasadus92) as part of solving the "Hermes fallback model" problem for [Luminik](https://luminik.io), then extracted into a standalone tool because the shim turned out to be useful beyond Hermes.
+Built by Prasad Subrahmanya ([prasad.tech](https://prasad.tech) · [@prasadus92](https://github.com/prasadus92)) as part of solving the "Hermes fallback model" problem for [Luminik](https://luminik.io), then extracted into a standalone tool because the shim turned out to be useful beyond Hermes.

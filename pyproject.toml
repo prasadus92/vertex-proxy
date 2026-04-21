@@ -43,7 +43,9 @@ vertex-proxy = "vertex_proxy.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/prasadus92/vertex-proxy"
+Author = "https://prasad.tech"
 Issues = "https://github.com/prasadus92/vertex-proxy/issues"
+Changelog = "https://github.com/prasadus92/vertex-proxy/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vertex_proxy"]

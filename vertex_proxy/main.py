@@ -11,18 +11,73 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
+from collections import Counter
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .auth import TokenManager
 from .config import Settings, load_settings
 
 logger = logging.getLogger(__name__)
+
+
+# --- Metrics (Prometheus-format, tiny in-memory counters) -------------------
+# We deliberately don't pull in prometheus_client to keep the dep footprint
+# minimal. This is good enough for a local proxy; use a real metrics library
+# for production multi-instance deployments.
+
+
+class _Metrics:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._requests: Counter[tuple[str, str, str]] = Counter()
+        self._tokens_in: Counter[str] = Counter()
+        self._tokens_out: Counter[str] = Counter()
+        self._started_at = time.time()
+
+    def record_request(self, route: str, model: str, status: int) -> None:
+        with self._lock:
+            self._requests[(route, model, str(status))] += 1
+
+    def record_tokens(self, model: str, prompt: int, completion: int) -> None:
+        with self._lock:
+            self._tokens_in[model] += prompt
+            self._tokens_out[model] += completion
+
+    def render(self) -> str:
+        """Render Prometheus exposition format."""
+        lines = [
+            "# HELP vertex_proxy_uptime_seconds Seconds since proxy start",
+            "# TYPE vertex_proxy_uptime_seconds gauge",
+            f"vertex_proxy_uptime_seconds {time.time() - self._started_at:.0f}",
+            "# HELP vertex_proxy_requests_total Total requests by route, model, and status",
+            "# TYPE vertex_proxy_requests_total counter",
+        ]
+        with self._lock:
+            for (route, model, status), count in self._requests.items():
+                lines.append(
+                    f'vertex_proxy_requests_total{{route="{route}",model="{model}",status="{status}"}} {count}'
+                )
+            lines.append("# HELP vertex_proxy_tokens_in_total Prompt tokens forwarded")
+            lines.append("# TYPE vertex_proxy_tokens_in_total counter")
+            for model, count in self._tokens_in.items():
+                lines.append(f'vertex_proxy_tokens_in_total{{model="{model}"}} {count}')
+            lines.append("# HELP vertex_proxy_tokens_out_total Completion tokens returned")
+            lines.append("# TYPE vertex_proxy_tokens_out_total counter")
+            for model, count in self._tokens_out.items():
+                lines.append(f'vertex_proxy_tokens_out_total{{model="{model}"}} {count}')
+        return "\n".join(lines) + "\n"
+
+
+_METRICS = _Metrics()
 
 
 # --- app factory ------------------------------------------------------------
@@ -63,6 +118,23 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
+    # --- optional bearer-token auth on the proxy itself ------------------------
+    # When VERTEX_PROXY_API_KEY is set, every non-health route requires it.
+    # Use when exposing the proxy on a LAN or reverse-proxying to the internet.
+    bearer = HTTPBearer(auto_error=False)
+
+    async def require_api_key(
+        creds: HTTPAuthorizationCredentials | None = Depends(bearer),  # noqa: B008
+    ) -> None:
+        if not cfg.api_key:
+            return  # auth not required
+        if creds is None or creds.credentials != cfg.api_key:
+            raise HTTPException(
+                status_code=401,
+                detail="missing or invalid bearer token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     # --- health ----------------------------------------------------------------
 
     @app.get("/health")
@@ -77,7 +149,18 @@ def build_app(settings: Settings | None = None) -> FastAPI:
                 content={"status": "unhealthy", "error": str(exc)},
             )
 
-    @app.get("/v1/models")
+    # --- metrics (Prometheus, opt-in) ----------------------------------------
+
+    @app.get("/metrics")
+    async def metrics() -> PlainTextResponse:
+        if not cfg.metrics_enabled:
+            raise HTTPException(
+                status_code=404,
+                detail="metrics disabled; set VERTEX_PROXY_METRICS_ENABLED=true to enable",
+            )
+        return PlainTextResponse(_METRICS.render(), media_type="text/plain; version=0.0.4")
+
+    @app.get("/v1/models", dependencies=[Depends(require_api_key)])
     async def list_models() -> dict[str, Any]:
         return {
             "object": "list",
@@ -115,12 +198,12 @@ def build_app(settings: Settings | None = None) -> FastAPI:
 
     # --- Anthropic routes ------------------------------------------------------
 
-    @app.post("/anthropic/v1/messages")
+    @app.post("/anthropic/v1/messages", dependencies=[Depends(require_api_key)])
     async def anthropic_messages(request: Request) -> Any:
         return await _handle_anthropic(request, cfg, token_mgr)
 
     # Also accept /v1/messages directly (some clients won't let you override path).
-    @app.post("/v1/messages")
+    @app.post("/v1/messages", dependencies=[Depends(require_api_key)])
     async def anthropic_messages_root(request: Request) -> Any:
         return await _handle_anthropic(request, cfg, token_mgr)
 
@@ -128,11 +211,13 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     # Gemini SDK hits /v1beta/models/{model}:generateContent and :streamGenerateContent.
     # We pass-through both.
 
-    @app.post("/gemini/v1beta/models/{model_and_action:path}")
+    @app.post(
+        "/gemini/v1beta/models/{model_and_action:path}", dependencies=[Depends(require_api_key)]
+    )
     async def gemini_generate(model_and_action: str, request: Request) -> Any:
         return await _handle_gemini(model_and_action, request, cfg, token_mgr)
 
-    @app.post("/v1beta/models/{model_and_action:path}")
+    @app.post("/v1beta/models/{model_and_action:path}", dependencies=[Depends(require_api_key)])
     async def gemini_generate_root(model_and_action: str, request: Request) -> Any:
         return await _handle_gemini(model_and_action, request, cfg, token_mgr)
 
@@ -141,17 +226,17 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     # Vertex exposes these through an OpenAI Chat Completions-compatible
     # endpoint at /v1beta1/.../endpoints/openapi/chat/completions.
 
-    @app.post("/openai/v1/chat/completions")
+    @app.post("/openai/v1/chat/completions", dependencies=[Depends(require_api_key)])
     async def openai_chat_completions(request: Request) -> Any:
         return await _handle_openai(request, cfg, token_mgr)
 
-    @app.post("/v1/chat/completions")
+    @app.post("/v1/chat/completions", dependencies=[Depends(require_api_key)])
     async def openai_chat_completions_root(request: Request) -> Any:
         return await _handle_openai(request, cfg, token_mgr)
 
     # Some OpenAI clients (notably Hermes's internal one) drop the /v1 prefix
     # when you set base_url to the server root. Accept that shape too.
-    @app.post("/chat/completions")
+    @app.post("/chat/completions", dependencies=[Depends(require_api_key)])
     async def openai_chat_completions_bare(request: Request) -> Any:
         return await _handle_openai(request, cfg, token_mgr)
 
@@ -222,6 +307,7 @@ async def _handle_anthropic(request: Request, cfg: Settings, tm: TokenManager) -
 
     http: httpx.AsyncClient = request.app.state.http
     if streaming:
+        _METRICS.record_request("anthropic", requested_model, 200)
         return StreamingResponse(
             _stream_bytes(http, url, headers, upstream_body),
             media_type="text/event-stream",
@@ -233,7 +319,7 @@ async def _handle_anthropic(request: Request, cfg: Settings, tm: TokenManager) -
         logger.error("anthropic upstream error: %s", exc)
         raise HTTPException(status_code=502, detail=f"upstream error: {exc}") from exc
 
-    return _passthrough_response(resp)
+    return _passthrough_response(resp, route="anthropic", model=requested_model)
 
 
 # --- Gemini handler ---------------------------------------------------------
@@ -282,6 +368,7 @@ async def _handle_gemini(
 
     http: httpx.AsyncClient = request.app.state.http
     if streaming:
+        _METRICS.record_request("gemini", requested_model, 200)
         return StreamingResponse(
             _stream_bytes(http, url, headers, body),
             media_type="text/event-stream",
@@ -293,7 +380,7 @@ async def _handle_gemini(
         logger.error("gemini upstream error: %s", exc)
         raise HTTPException(status_code=502, detail=f"upstream error: {exc}") from exc
 
-    return _passthrough_response(resp)
+    return _passthrough_response(resp, route="gemini", model=requested_model)
 
 
 # --- OpenAI-compatible (Vertex MaaS) handler -------------------------------
@@ -365,6 +452,7 @@ async def _handle_openai(request: Request, cfg: Settings, tm: TokenManager) -> A
 
     http: httpx.AsyncClient = request.app.state.http
     if streaming:
+        _METRICS.record_request("openai", requested_model, 200)
         return StreamingResponse(
             _stream_bytes(http, url, headers, upstream_body),
             media_type="text/event-stream",
@@ -376,7 +464,7 @@ async def _handle_openai(request: Request, cfg: Settings, tm: TokenManager) -> A
         logger.error("maas upstream error: %s", exc)
         raise HTTPException(status_code=502, detail=f"upstream error: {exc}") from exc
 
-    return _passthrough_response(resp)
+    return _passthrough_response(resp, route="openai", model=requested_model)
 
 
 # --- helpers ----------------------------------------------------------------
@@ -400,11 +488,25 @@ async def _stream_bytes(
             yield chunk
 
 
-def _passthrough_response(resp: httpx.Response) -> JSONResponse:
-    """Forward upstream status + JSON body to the client."""
+def _passthrough_response(resp: httpx.Response, route: str = "", model: str = "") -> JSONResponse:
+    """Forward upstream status + JSON body to the client.
+
+    If ``route`` + ``model`` are provided and metrics are enabled, record
+    request count + token usage from the OpenAI/Anthropic-style ``usage`` field.
+    """
     try:
         payload = resp.json()
     except json.JSONDecodeError:
         # Not JSON; forward as text wrapped.
         payload = {"raw": resp.text[:4000]}
+
+    if route and model:
+        _METRICS.record_request(route, model, resp.status_code)
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        if isinstance(usage, dict):
+            prompt = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+            completion = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+            if prompt or completion:
+                _METRICS.record_tokens(model, prompt, completion)
+
     return JSONResponse(status_code=resp.status_code, content=payload)

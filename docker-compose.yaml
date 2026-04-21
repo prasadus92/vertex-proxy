@@ -1,0 +1,32 @@
+# Example docker-compose setup for vertex-proxy.
+# Usage:
+#   1. Copy .env.example to .env and fill in your values
+#   2. Place your GCP service-account JSON at ./credentials/gcp-key.json
+#   3. docker compose up -d
+
+services:
+  vertex-proxy:
+    build: .
+    image: vertex-proxy:latest
+    container_name: vertex-proxy
+    restart: unless-stopped
+    ports:
+      # Bind to 127.0.0.1 by default. Change to "8787:8787" to expose on LAN,
+      # but if you do, you MUST set VERTEX_PROXY_API_KEY to require auth.
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./credentials/gcp-key.json:/app/credentials/gcp-key.json:ro
+    environment:
+      VERTEX_PROXY_CREDENTIALS_PATH: /app/credentials/gcp-key.json
+      VERTEX_PROXY_PROJECT_ID: ${VERTEX_PROXY_PROJECT_ID}
+      VERTEX_PROXY_ANTHROPIC_REGION: ${VERTEX_PROXY_ANTHROPIC_REGION:-us-east5}
+      VERTEX_PROXY_GEMINI_REGION: ${VERTEX_PROXY_GEMINI_REGION:-us-central1}
+      VERTEX_PROXY_LOG_LEVEL: ${VERTEX_PROXY_LOG_LEVEL:-info}
+      # Uncomment to require a bearer token on all routes:
+      # VERTEX_PROXY_API_KEY: ${VERTEX_PROXY_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8787/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

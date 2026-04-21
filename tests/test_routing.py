@@ -197,3 +197,95 @@ def test_maas_unknown_model_rejected() -> None:
         )
         assert r.status_code == 400
         assert "unknown MaaS model" in r.json()["detail"]
+
+
+def test_openai_route_variants_all_accepted() -> None:
+    """Hermes + various OpenAI clients use different URL shapes; all must work."""
+    captured: dict[str, Any] = {}
+    app, _ = _build_test_app(captured)
+    with TestClient(app) as client:
+        mock_http = _install_mock_http(client)
+        mock_http.post.return_value = httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok"}}]},
+            request=httpx.Request("POST", "http://x"),
+        )
+        for path in ["/v1/chat/completions", "/chat/completions", "/openai/v1/chat/completions"]:
+            r = client.post(
+                path,
+                json={"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "hi"}]},
+            )
+            assert r.status_code == 200, f"path {path} failed"
+
+
+def test_openai_gemini_routes_via_openai_compat_endpoint() -> None:
+    """Gemini models via /openai/v1/chat/completions should hit Vertex's
+    OpenAI-compat endpoint (not the MaaS publishers path)."""
+    captured: dict[str, Any] = {}
+    app, _ = _build_test_app(captured)
+    with TestClient(app) as client:
+        mock_http = _install_mock_http(client)
+        mock_http.post.return_value = httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok"}}]},
+            request=httpx.Request("POST", "http://x"),
+        )
+        r = client.post(
+            "/openai/v1/chat/completions",
+            json={"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert r.status_code == 200
+        call_args = mock_http.post.await_args
+        url = call_args.args[0] if call_args.args else call_args.kwargs["url"]
+        assert "endpoints/openapi/chat/completions" in url, url
+        body = call_args.kwargs["json"]
+        assert body["model"] == "google/gemini-2.5-flash"
+
+
+def test_v1_models_specific_lookup() -> None:
+    app, _ = _build_test_app({})
+    with TestClient(app) as client:
+        r = client.get("/v1/models/gemini-2.5-flash")
+        assert r.status_code == 200
+        assert r.json()["id"] == "gemini-2.5-flash"
+        r = client.get("/v1/models/unknown-model")
+        assert r.status_code == 404
+
+
+def test_metrics_endpoint_disabled_by_default() -> None:
+    app, _ = _build_test_app({})
+    with TestClient(app) as client:
+        r = client.get("/metrics")
+        assert r.status_code == 404
+        assert "metrics disabled" in r.json()["detail"]
+
+
+def test_metrics_endpoint_enabled(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("VERTEX_PROXY_METRICS_ENABLED", "true")
+    app, _ = _build_test_app({})
+    with TestClient(app) as client:
+        r = client.get("/metrics")
+        assert r.status_code == 200
+        assert "vertex_proxy_uptime_seconds" in r.text
+        assert "vertex_proxy_requests_total" in r.text
+
+
+def test_api_key_required_when_configured(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("VERTEX_PROXY_API_KEY", "s3cret")
+    app, _ = _build_test_app({})
+    with TestClient(app) as client:
+        _install_mock_http(client)
+        r = client.post("/v1/chat/completions", json={"model": "gemini-2.5-flash", "messages": []})
+        assert r.status_code == 401
+        r = client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer wrong"},
+            json={"model": "gemini-2.5-flash", "messages": []},
+        )
+        assert r.status_code == 401
+        r = client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer s3cret"},
+            json={"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert r.status_code != 401

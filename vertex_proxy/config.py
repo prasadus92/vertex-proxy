@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     port: int = 8787
     log_level: str = "info"
 
+    # Optional bearer-token auth on the proxy itself. When set, every request
+    # must include `Authorization: Bearer <this value>`. Leave unset for
+    # localhost-only deploys (the default). Set it if you expose the proxy on
+    # a LAN or reverse-proxy it to the internet.
+    api_key: str | None = None
+
+    # Prometheus-format metrics endpoint. Adds request counters + token
+    # counters by model and provider. Off by default to keep the footprint
+    # minimal; enable by setting VERTEX_PROXY_METRICS_ENABLED=true.
+    metrics_enabled: bool = False
+
     # --- Auth refresh ---
     # Access tokens live 60 minutes. Refresh at this interval to stay ahead.
     token_refresh_seconds: int = 3000  # 50 minutes
