@@ -149,6 +149,25 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     async def openai_chat_completions_root(request: Request) -> Any:
         return await _handle_openai(request, cfg, token_mgr)
 
+    # Some OpenAI clients (notably Hermes's internal one) drop the /v1 prefix
+    # when you set base_url to the server root. Accept that shape too.
+    @app.post("/chat/completions")
+    async def openai_chat_completions_bare(request: Request) -> Any:
+        return await _handle_openai(request, cfg, token_mgr)
+
+    # /v1/models/{model} — some clients probe for a specific model's existence
+    # before dispatching. Return minimal metadata so they don't bail.
+    @app.get("/v1/models/{model_id:path}")
+    async def get_model(model_id: str) -> dict[str, Any]:
+        if (
+            model_id in cfg.anthropic_model_aliases
+            or model_id in cfg.gemini_model_aliases
+            or model_id in cfg.maas_model_aliases
+            or model_id.startswith("google/")
+        ):
+            return {"id": model_id, "object": "model", "owned_by": "vertex-proxy"}
+        raise HTTPException(status_code=404, detail=f"model '{model_id}' not found")
+
     return app
 
 
@@ -294,24 +313,6 @@ async def _handle_openai(request: Request, cfg: Settings, tm: TokenManager) -> A
     if not requested_model:
         raise HTTPException(status_code=400, detail="missing 'model' in request body")
 
-    path_fragment = cfg.maas_model_aliases.get(requested_model)
-    if path_fragment is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"unknown MaaS model '{requested_model}'. "
-                f"known aliases: {sorted(cfg.maas_model_aliases.keys())}"
-            ),
-        )
-
-    # Vertex MaaS OpenAI-compatible endpoint.
-    # NOTE: The exact path may be either ":chat/completions" on the model path,
-    # or ".../endpoints/openapi/chat/completions". We try the direct form first.
-    url = (
-        f"https://{cfg.maas_region}-aiplatform.googleapis.com/v1beta1/projects/"
-        f"{cfg.project_id}/locations/{cfg.maas_region}/{path_fragment}/chat/completions"
-    )
-
     streaming = bool(body.get("stream"))
     token = await tm.get_token()
     headers = {
@@ -319,17 +320,48 @@ async def _handle_openai(request: Request, cfg: Settings, tm: TokenManager) -> A
         "Content-Type": "application/json",
     }
 
-    # Vertex MaaS wants the *short* model name in the body (without the path).
-    # Strip the "publishers/.../models/" prefix.
-    upstream_body = dict(body)
-    upstream_body["model"] = path_fragment.rsplit("/", 1)[-1]
-
-    logger.info(
-        "maas: model=%s → path=%s streaming=%s",
-        requested_model,
-        path_fragment,
-        streaming,
-    )
+    # --- routing: Gemini via Vertex OpenAI-compat, or MaaS partner model. ---
+    if requested_model in cfg.gemini_model_aliases or requested_model.startswith("google/"):
+        # Gemini models through Vertex's OpenAI-compat endpoint.
+        # See: https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-gemini-using-openai-library
+        bare_model = requested_model.removeprefix("google/")
+        vertex_model = cfg.gemini_model_aliases.get(bare_model, bare_model)
+        url = (
+            f"https://{cfg.gemini_region}-aiplatform.googleapis.com/v1beta1/projects/"
+            f"{cfg.project_id}/locations/{cfg.gemini_region}/endpoints/openapi/chat/completions"
+        )
+        upstream_body = dict(body)
+        upstream_body["model"] = f"google/{vertex_model}"
+        logger.info(
+            "openai→gemini: model=%s → %s streaming=%s",
+            requested_model,
+            upstream_body["model"],
+            streaming,
+        )
+    else:
+        # MaaS partner models (Kimi, GLM, MiniMax, Qwen, Grok).
+        path_fragment = cfg.maas_model_aliases.get(requested_model)
+        if path_fragment is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"unknown MaaS model '{requested_model}'. "
+                    f"known aliases: {sorted(cfg.maas_model_aliases.keys())} "
+                    f"or gemini: {sorted(cfg.gemini_model_aliases.keys())}"
+                ),
+            )
+        url = (
+            f"https://{cfg.maas_region}-aiplatform.googleapis.com/v1beta1/projects/"
+            f"{cfg.project_id}/locations/{cfg.maas_region}/{path_fragment}/chat/completions"
+        )
+        upstream_body = dict(body)
+        upstream_body["model"] = path_fragment.rsplit("/", 1)[-1]
+        logger.info(
+            "openai→maas: model=%s → path=%s streaming=%s",
+            requested_model,
+            path_fragment,
+            streaming,
+        )
 
     http: httpx.AsyncClient = request.app.state.http
     if streaming:
