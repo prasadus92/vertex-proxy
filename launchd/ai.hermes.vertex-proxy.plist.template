@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.hermes.vertex-proxy</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- Path to the vertex-proxy executable in your venv.
+             If installed system-wide, use the absolute path from `which vertex-proxy`. -->
+        <string>{{INSTALL_DIR}}/.venv/bin/vertex-proxy</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>VERTEX_PROXY_CREDENTIALS_PATH</key>
+        <string>{{CREDENTIALS_PATH}}</string>
+        <key>VERTEX_PROXY_PROJECT_ID</key>
+        <string>{{PROJECT_ID}}</string>
+        <key>VERTEX_PROXY_HOST</key>
+        <string>127.0.0.1</string>
+        <key>VERTEX_PROXY_PORT</key>
+        <string>8787</string>
+        <key>VERTEX_PROXY_LOG_LEVEL</key>
+        <string>info</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{HOME}}/Library/Logs/vertex-proxy.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{HOME}}/Library/Logs/vertex-proxy.err</string>
+
+    <key>WorkingDirectory</key>
+    <string>{{INSTALL_DIR}}</string>
+
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>4096</integer>
+    </dict>
+</dict>
+</plist>

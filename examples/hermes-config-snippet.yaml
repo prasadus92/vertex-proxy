@@ -1,0 +1,30 @@
+# Example Hermes Agent config snippet.
+# Merge these top-level keys into your ~/.hermes/config.yaml.
+#
+# Assumes vertex-proxy is running on 127.0.0.1:8787 (default).
+
+custom_providers:
+  - name: vertex-anthropic
+    base_url: http://127.0.0.1:8787/anthropic
+    transport: anthropic_messages
+
+  - name: vertex-gemini
+    # Note: Hermes doesn't have a native Gemini transport. Use this custom
+    # provider only if you've set Hermes up with an openai-chat-compat layer,
+    # or if you've added a Gemini transport locally.
+    base_url: http://127.0.0.1:8787/gemini
+    transport: openai_chat
+
+  - name: vertex-maas
+    base_url: http://127.0.0.1:8787/openai
+    transport: openai_chat
+
+# Use Claude Haiku 4.5 on Vertex as the global fallback for your primary model
+fallback_model:
+  provider: vertex-anthropic
+  model: claude-haiku-4-5-20250929
+
+# Or fall back to a cheaper MaaS model (requires GCP Marketplace enablement)
+# fallback_model:
+#   provider: vertex-maas
+#   model: kimi-k2.5

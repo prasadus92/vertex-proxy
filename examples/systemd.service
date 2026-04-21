@@ -1,0 +1,35 @@
+# Example systemd unit for running vertex-proxy as a Linux service.
+# Copy to /etc/systemd/system/vertex-proxy.service (or ~/.config/systemd/user/ for user-mode)
+# Edit the paths below, then:
+#   systemctl daemon-reload
+#   systemctl enable --now vertex-proxy.service
+
+[Unit]
+Description=vertex-proxy — Anthropic + Gemini proxy for Vertex AI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/vertex-proxy/.venv/bin/vertex-proxy
+Restart=on-failure
+RestartSec=10
+
+# Edit these for your deployment
+Environment="VERTEX_PROXY_CREDENTIALS_PATH=/etc/vertex-proxy/gcp-key.json"
+Environment="VERTEX_PROXY_PROJECT_ID=your-gcp-project"
+Environment="VERTEX_PROXY_HOST=127.0.0.1"
+Environment="VERTEX_PROXY_PORT=8787"
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/log/vertex-proxy
+
+StandardOutput=append:/var/log/vertex-proxy/vertex-proxy.log
+StandardError=append:/var/log/vertex-proxy/vertex-proxy.err
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local config
+.env
+.env.local
+*.json.local
+credentials/
+secrets/
+
+# Rendered launchd plist (we only commit the template)
+launchd/*.plist
+!launchd/*.plist.template
+
+# Logs
+*.log
