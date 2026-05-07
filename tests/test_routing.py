@@ -6,7 +6,7 @@ These tests use a fake TokenManager + mocked httpx so they don't need GCP.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 from fastapi.testclient import TestClient
@@ -47,6 +47,23 @@ class _FakeTokenManager:
     @property
     def token(self) -> str:
         return "fake-token"
+
+
+class _TimeoutStream:
+    status_code = 200
+
+    async def __aenter__(self) -> _TimeoutStream:
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    async def aiter_bytes(self):  # type: ignore[no-untyped-def]
+        raise httpx.ReadTimeout(
+            "read timeout",
+            request=httpx.Request("POST", "http://upstream"),
+        )
+        yield b""
 
 
 def _build_test_app(capture: dict[str, Any]) -> Any:
@@ -289,3 +306,25 @@ def test_api_key_required_when_configured(monkeypatch) -> None:  # type: ignore[
             json={"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "hi"}]},
         )
         assert r.status_code != 401
+
+
+def test_stream_read_timeout_returns_structured_sse_error() -> None:
+    app, _ = _build_test_app({})
+    with TestClient(app) as client:
+        mock_http = _install_mock_http(client)
+        mock_http.stream = Mock(return_value=_TimeoutStream())
+
+        with client.stream(
+            "POST",
+            "/openai/v1/chat/completions",
+            json={
+                "model": "gemini-2.5-flash",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        ) as response:
+            body = response.read().decode("utf-8")
+
+        assert response.status_code == 200
+        assert "event: error" in body
+        assert "upstream_read_timeout" in body

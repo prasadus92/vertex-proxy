@@ -28,6 +28,12 @@ from .config import Settings, load_settings
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_HTTP_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+# Vertex streaming responses can legitimately go quiet for longer than the
+# default read window while the model is thinking. Keep connect/write/pool
+# bounded, but do not abort a live stream just because no chunk arrived.
+STREAM_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=120.0, pool=120.0)
+
 
 # --- Metrics (Prometheus-format, tiny in-memory counters) -------------------
 # We deliberately don't pull in prometheus_client to keep the dep footprint
@@ -104,7 +110,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         logger.info("vertex-proxy ready; project=%s", cfg.project_id)
         app.state.token_mgr = token_mgr
         app.state.cfg = cfg
-        app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0))
+        app.state.http = httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT)
         try:
             yield
         finally:
@@ -476,16 +482,48 @@ async def _stream_bytes(
     headers: dict[str, str],
     body: dict[str, Any],
 ) -> AsyncGenerator[bytes, None]:
-    async with http.stream("POST", url, headers=headers, json=body) as r:
-        if r.status_code >= 400:
-            # Drain the error body so we can surface it.
-            err_body = b""
+    try:
+        async with http.stream(
+            "POST",
+            url,
+            headers=headers,
+            json=body,
+            timeout=STREAM_HTTP_TIMEOUT,
+        ) as r:
+            if r.status_code >= 400:
+                # StreamingResponse has already committed to a 200 status by
+                # the time this generator runs, so emit a structured SSE error
+                # instead of raising and leaving the client with a broken chunk.
+                err_body = b""
+                async for chunk in r.aiter_bytes():
+                    err_body += chunk
+                detail = err_body.decode("utf-8", errors="replace")[:2000]
+                logger.warning("upstream stream returned %s: %s", r.status_code, detail)
+                yield _stream_error("upstream_http_error", detail, status_code=r.status_code)
+                return
             async for chunk in r.aiter_bytes():
-                err_body += chunk
-            detail = err_body.decode("utf-8", errors="replace")[:2000]
-            raise HTTPException(status_code=r.status_code, detail=detail)
-        async for chunk in r.aiter_bytes():
-            yield chunk
+                yield chunk
+    except httpx.ReadTimeout as exc:
+        logger.warning("upstream stream read timeout: %s", exc)
+        yield _stream_error(
+            "upstream_read_timeout",
+            "upstream stream stalled before completion",
+        )
+    except httpx.HTTPError as exc:
+        logger.error("upstream stream error: %s", exc)
+        yield _stream_error("upstream_stream_error", str(exc))
+
+
+def _stream_error(error_type: str, message: str, status_code: int | None = None) -> bytes:
+    payload: dict[str, Any] = {
+        "error": {
+            "type": error_type,
+            "message": message[:2000],
+        }
+    }
+    if status_code is not None:
+        payload["error"]["status_code"] = status_code
+    return f"event: error\ndata: {json.dumps(payload)}\n\n".encode()
 
 
 def _passthrough_response(resp: httpx.Response, route: str = "", model: str = "") -> JSONResponse:

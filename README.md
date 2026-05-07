@@ -79,6 +79,7 @@ curl -X POST http://127.0.0.1:8787/gemini/v1beta/models/gemini-2.5-flash:generat
 | `GET /health` | - | Liveness + auth check |
 
 Streaming is supported on Anthropic and Gemini routes.
+Streaming requests use a no-read-timeout upstream client so long Vertex generations do not get cut off during idle periods.
 
 ## Pre-configured models
 
@@ -205,7 +206,7 @@ Do not expose it to a public interface. If you need remote access, put it behind
 - [x] Dockerfile + docker-compose for containerized deploy
 - [x] Optional bearer-token auth on the proxy itself (for remote deploys)
 - [x] Prometheus metrics endpoint at `/metrics`
-- [x] 13 unit tests, GitHub Actions CI on Python 3.11 + 3.12
+- [x] 20 unit tests, GitHub Actions CI on Python 3.11 + 3.12
 
 ### Tested with
 - [x] Hermes Agent — verified end-to-end with live Gemini 2.5 Flash dispatch
@@ -213,6 +214,10 @@ Do not expose it to a public interface. If you need remote access, put it behind
 - [x] Direct `curl` against all routes
 
 ## Troubleshooting
+
+### Client reports incomplete chunked read during streaming
+
+This usually means the upstream Vertex stream was interrupted. Current streaming routes keep the upstream read open without a fixed read timeout and return a structured SSE error if Vertex still fails mid-stream, so clients should receive a clean error event instead of a broken HTTP chunk.
 
 ### 404 "model not found" on Claude routes
 
