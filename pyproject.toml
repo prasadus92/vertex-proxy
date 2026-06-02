@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vertex-proxy"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Anthropic + Gemini API-compatible proxy for Google Cloud Vertex AI. Bridges static-URL API consumers to Vertex AI's service-account auth."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -47,6 +47,9 @@ Author = "https://prasad.tech"
 Issues = "https://github.com/prasadus92/vertex-proxy/issues"
 Changelog = "https://github.com/prasadus92/vertex-proxy/blob/main/CHANGELOG.md"
 
+[tool.hatch.version]
+path = "vertex_proxy/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["vertex_proxy"]
 
@@ -56,7 +59,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
-ignore = ["E501"]  # line-too-long — handled by formatter
+ignore = ["E501"]  # line-too-long, handled by formatter
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -23,6 +23,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from . import __version__
 from .auth import TokenManager
 from .config import Settings, load_settings
 
@@ -120,7 +121,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="vertex-proxy",
         description="Anthropic + Gemini API-compatible proxy for Google Cloud Vertex AI",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
     )
 

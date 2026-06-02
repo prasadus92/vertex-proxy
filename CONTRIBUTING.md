@@ -62,3 +62,28 @@ Most additions only require editing `vertex_proxy/config.py`:
 - MaaS partner model (Kimi, GLM, MiniMax, Qwen, Grok, …) → add to `maas_model_aliases`
 
 For a genuinely new model family with a different API shape, open an issue first.
+
+## Releasing (maintainer)
+
+Releases publish to PyPI via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC), so there is no API token to store as a secret.
+
+One-time setup:
+
+1. On PyPI, add a trusted publisher at https://pypi.org/manage/account/publishing/ with:
+   - PyPI project name: `vertex-proxy`
+   - Owner: `prasadus92`
+   - Repository: `vertex-proxy`
+   - Workflow name: `release.yml`
+   - Environment name: `pypi`
+2. (Recommended) Create a GitHub environment named `pypi` under repo Settings to gate the publish job.
+
+To cut a release:
+
+1. Bump `__version__` in `vertex_proxy/__init__.py`. That is the single source of truth; `pyproject.toml` and the running app's `version` both read from it.
+2. Move the `[Unreleased]` entries in `CHANGELOG.md` under a new dated version heading.
+3. Commit, then tag and push:
+   ```
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+4. The `Release` workflow builds the sdist + wheel, runs `twine check`, and publishes to PyPI.

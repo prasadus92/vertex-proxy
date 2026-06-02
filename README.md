@@ -33,6 +33,14 @@ No client changes. Small, dependency-light Python. MIT licensed.
 Python 3.11+, a GCP project with Vertex AI API enabled, and a service-account JSON key with `roles/aiplatform.user`.
 
 ```bash
+pipx install vertex-proxy
+# or:  uv tool install vertex-proxy
+# or run it without installing:  uvx vertex-proxy
+```
+
+### From source (for development)
+
+```bash
 git clone https://github.com/prasadus92/vertex-proxy.git
 cd vertex-proxy
 python -m venv .venv
@@ -44,18 +52,20 @@ python -m venv .venv
 ```bash
 export VERTEX_PROXY_CREDENTIALS_PATH=/path/to/service-account.json
 export VERTEX_PROXY_PROJECT_ID=your-gcp-project
-.venv/bin/vertex-proxy
+vertex-proxy
 # → listening on http://127.0.0.1:8787
 ```
 
 Or inline:
 
 ```bash
-.venv/bin/vertex-proxy \
+vertex-proxy \
   --credentials ~/.vertex/key.json \
   --project-id my-project \
   --port 8787
 ```
+
+(From a source checkout, the command is `.venv/bin/vertex-proxy`.)
 
 Verify:
 
@@ -211,7 +221,8 @@ Do not expose it to a public interface. If you need remote access, put it behind
 - [x] Dockerfile + docker-compose for containerized deploy
 - [x] Optional bearer-token auth on the proxy itself (for remote deploys)
 - [x] Prometheus metrics endpoint at `/metrics`
-- [x] 20 unit tests, GitHub Actions CI on Python 3.11 + 3.12
+- [x] `pipx` / `uv` / `uvx` install via PyPI (tag-triggered OIDC Trusted Publishing release workflow)
+- [x] 22 unit tests, GitHub Actions CI on Python 3.11 + 3.12
 
 ### Tested with
 - [x] Hermes Agent: verified end-to-end with live Gemini 2.5 Flash dispatch

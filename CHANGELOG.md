@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-02
+
 ### Added
 - Accept the OpenAI Chat Completions request shape under the `/gemini` and `/openai` prefixes (`/gemini/chat/completions`, `/gemini/v1/chat/completions`, `/openai/chat/completions`) in addition to the bare root, so OpenAI-chat clients work regardless of which `base_url` prefix they are pointed at.
 - Mirror model-discovery endpoints (`/v1/models`, `/models`) under the `/gemini` and `/openai` prefixes so clients that probe for a model catalog before dispatching don't get 404s.
+- Publish to PyPI via a tag-triggered OIDC Trusted Publishing workflow, enabling `pipx install vertex-proxy` (and `uv tool install` / `uvx`).
+
+### Changed
+- Single-source the package version from `vertex_proxy/__init__.py` (hatchling dynamic version), so a release only needs one version bump.
 
 ### Fixed
 - Fix `404 {"detail":"Not Found"}` for OpenAI-chat clients (e.g. Hermes) configured with a `/gemini` base URL. The client appends `/chat/completions` to `base_url`, which previously had no handler under the native Gemini route prefix ([#1](https://github.com/prasadus92/vertex-proxy/issues/1)).
