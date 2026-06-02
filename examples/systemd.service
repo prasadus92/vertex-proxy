@@ -5,7 +5,7 @@
 #   systemctl enable --now vertex-proxy.service
 
 [Unit]
-Description=vertex-proxy — Anthropic + Gemini proxy for Vertex AI
+Description=vertex-proxy: Anthropic + Gemini proxy for Vertex AI
 After=network-online.target
 Wants=network-online.target
 

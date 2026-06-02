@@ -17,7 +17,7 @@ python -m venv .venv
 .venv/bin/pytest
 ```
 
-Tests are pure unit / mocked; they don't hit real GCP. Integration smoke tests against live Vertex AI live in `tests/integration/` and require real credentials (run manually, not in CI).
+Tests are pure unit / mocked; they don't hit real GCP. To smoke-test against live Vertex AI you need real credentials, so do it manually (see "Running locally against real Vertex" below); CI stays mock-only.
 
 ## Running locally against real Vertex
 
@@ -46,7 +46,7 @@ curl -X POST http://127.0.0.1:8787/gemini/v1beta/models/gemini-2.5-flash:generat
 
 This project intentionally does not:
 
-- Authenticate incoming requests (it's a local-loopback proxy)
+- Authenticate incoming requests by default (it's a local-loopback proxy; optional bearer-token auth is available via `VERTEX_PROXY_API_KEY` for remote deploys)
 - Do request transformation beyond what Vertex requires (e.g., Anthropic `model` field → URL path)
 - Cache responses
 - Log request bodies (privacy + credit safety)

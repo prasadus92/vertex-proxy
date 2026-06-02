@@ -26,7 +26,7 @@ vertex-proxy runs on `127.0.0.1:8787`, handles the auth refresh loop, and transl
 └──────────────┘   localhost:8787            └──────────────┘   SA JWT     └────────────┘
 ```
 
-No client changes. ~400 lines of Python. MIT licensed.
+No client changes. Small, dependency-light Python. MIT licensed.
 
 ## Install
 
@@ -80,7 +80,7 @@ curl -X POST http://127.0.0.1:8787/gemini/v1beta/models/gemini-2.5-flash:generat
 
 The OpenAI Chat Completions shape is also accepted under the `/gemini` prefix and the bare root, so clients that build their URL from a `base_url` of `.../openai`, `.../gemini`, or the server root all reach the same handler. Model-discovery probes (`/v1/models`, `/models`) are mirrored under those prefixes too.
 
-Streaming is supported on Anthropic and Gemini routes.
+Streaming is supported on all routes (Anthropic, Gemini, and the OpenAI-compat route).
 Streaming requests use a no-read-timeout upstream client so long Vertex generations do not get cut off during idle periods.
 
 ## Pre-configured models
@@ -214,8 +214,8 @@ Do not expose it to a public interface. If you need remote access, put it behind
 - [x] 20 unit tests, GitHub Actions CI on Python 3.11 + 3.12
 
 ### Tested with
-- [x] Hermes Agent — verified end-to-end with live Gemini 2.5 Flash dispatch
-- [x] Claude Code CLI — via `ANTHROPIC_BASE_URL` env
+- [x] Hermes Agent: verified end-to-end with live Gemini 2.5 Flash dispatch
+- [x] Claude Code CLI: via `ANTHROPIC_BASE_URL` env
 - [x] Direct `curl` against all routes
 
 ## Troubleshooting

@@ -246,7 +246,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     async def openai_chat_completions_bare(request: Request) -> Any:
         return await _handle_openai(request, cfg, token_mgr)
 
-    # /v1/models/{model} — some clients probe for a specific model's existence
+    # /v1/models/{model}: some clients probe for a specific model's existence
     # before dispatching. Return minimal metadata so they don't bail.
     @app.get("/v1/models/{model_id:path}")
     async def get_model(model_id: str) -> dict[str, Any]:
