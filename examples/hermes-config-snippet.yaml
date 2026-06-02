@@ -9,10 +9,12 @@ custom_providers:
     transport: anthropic_messages
 
   - name: vertex-gemini
-    # Note: Hermes doesn't have a native Gemini transport. Use this custom
-    # provider only if you've set Hermes up with an openai-chat-compat layer,
-    # or if you've added a Gemini transport locally.
-    base_url: http://127.0.0.1:8787/gemini
+    # Hermes reaches Gemini through its openai_chat transport, which appends
+    # /chat/completions (and probes /v1/models) onto base_url. The proxy serves
+    # Gemini via Vertex's OpenAI-compat layer and accepts that shape under the
+    # /openai, /gemini, and bare-root prefixes, so any of these bases work. We
+    # use /openai here because it's the clearest match for the openai_chat shape.
+    base_url: http://127.0.0.1:8787/openai
     transport: openai_chat
 
   - name: vertex-maas

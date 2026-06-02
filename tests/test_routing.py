@@ -259,6 +259,66 @@ def test_openai_gemini_routes_via_openai_compat_endpoint() -> None:
         assert body["model"] == "google/gemini-2.5-flash"
 
 
+def test_gemini_prefix_accepts_openai_chat_shape() -> None:
+    """Regression for issue #1: an OpenAI-chat client pointed at the /gemini base
+    appends /chat/completions, so /gemini/chat/completions (and the /v1 variant)
+    must reach the OpenAI-compat handler and route Gemini to Vertex's
+    OpenAI-compat endpoint, not 404."""
+    captured: dict[str, Any] = {}
+    app, _ = _build_test_app(captured)
+    with TestClient(app) as client:
+        mock_http = _install_mock_http(client)
+        mock_http.post.return_value = httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok"}}]},
+            request=httpx.Request("POST", "http://x"),
+        )
+        for path in [
+            "/gemini/chat/completions",
+            "/gemini/v1/chat/completions",
+            "/openai/chat/completions",
+        ]:
+            r = client.post(
+                path,
+                json={
+                    "model": "gemini-2.5-flash",
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+            )
+            assert r.status_code == 200, f"path {path} failed: {r.text}"
+            call_args = mock_http.post.await_args
+            url = call_args.args[0] if call_args.args else call_args.kwargs["url"]
+            assert "endpoints/openapi/chat/completions" in url, url
+            assert call_args.kwargs["json"]["model"] == "google/gemini-2.5-flash"
+
+
+def test_model_discovery_under_client_prefixes() -> None:
+    """OpenAI-chat clients probe /models and /v1/models relative to their
+    base_url before dispatching. Those probes must succeed under the /gemini and
+    /openai prefixes (and bare root) so clients can list models without errors."""
+    app, _ = _build_test_app({})
+    with TestClient(app) as client:
+        for path in [
+            "/models",
+            "/v1/models",
+            "/openai/v1/models",
+            "/gemini/v1/models",
+            "/gemini/models",
+            "/api/v1/models",
+            "/gemini/api/v1/models",
+        ]:
+            r = client.get(path)
+            assert r.status_code == 200, f"list path {path} failed: {r.status_code}"
+            ids = {m["id"] for m in r.json()["data"]}
+            assert "gemini-2.5-flash" in ids, path
+        # Specific-model probe under a client prefix.
+        r = client.get("/gemini/v1/models/gemini-2.5-flash")
+        assert r.status_code == 200
+        assert r.json()["id"] == "gemini-2.5-flash"
+        r = client.get("/gemini/v1/models/not-a-model")
+        assert r.status_code == 404
+
+
 def test_v1_models_specific_lookup() -> None:
     app, _ = _build_test_app({})
     with TestClient(app) as client:

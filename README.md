@@ -74,9 +74,11 @@ curl -X POST http://127.0.0.1:8787/gemini/v1beta/models/gemini-2.5-flash:generat
 |---|---|---|
 | `POST /anthropic/v1/messages` | Anthropic Messages API | `publishers/anthropic/models/{model}:rawPredict` |
 | `POST /gemini/v1beta/models/{m}:{action}` | Gemini generateContent API | `publishers/google/models/{m}:{action}` |
-| `POST /openai/v1/chat/completions` | OpenAI Chat Completions | Vertex MaaS partner models (Kimi, GLM, MiniMax, Qwen, Grok) |
+| `POST /openai/v1/chat/completions` | OpenAI Chat Completions | Gemini (via Vertex OpenAI-compat) + MaaS partner models (Kimi, GLM, MiniMax, Qwen, Grok) |
 | `GET /v1/models` | - | Lists routable models |
 | `GET /health` | - | Liveness + auth check |
+
+The OpenAI Chat Completions shape is also accepted under the `/gemini` prefix and the bare root, so clients that build their URL from a `base_url` of `.../openai`, `.../gemini`, or the server root all reach the same handler. Model-discovery probes (`/v1/models`, `/models`) are mirrored under those prefixes too.
 
 Streaming is supported on Anthropic and Gemini routes.
 Streaming requests use a no-read-timeout upstream client so long Vertex generations do not get cut off during idle periods.
@@ -121,7 +123,10 @@ Add to `~/.hermes/config.yaml`:
 ```yaml
 custom_providers:
   - name: vertex-gemini
-    base_url: http://127.0.0.1:8787/gemini
+    # Hermes's openai_chat transport appends /chat/completions (and probes
+    # /v1/models) onto base_url. Gemini is served through Vertex's OpenAI-compat
+    # layer, so any of these bases work: .../openai, .../gemini, or the bare root.
+    base_url: http://127.0.0.1:8787/openai
     transport: openai_chat
 
   - name: vertex-anthropic
@@ -133,7 +138,7 @@ fallback_model:
   model: gemini-2.5-pro
 ```
 
-Zero Hermes source changes required. Picks up the existing `custom_providers` mechanism.
+Zero Hermes source changes required. Picks up the existing `custom_providers` mechanism. The `openai_chat` transport routes through the proxy's OpenAI-compat handler, which dispatches Gemini models to Vertex's OpenAI-compatible endpoint based on the request body's `model`.
 
 ### opencode / Cline / any Anthropic-SDK client
 
@@ -200,7 +205,7 @@ Do not expose it to a public interface. If you need remote access, put it behind
 - [x] Gemini generateContent API → Vertex Gemini (with streaming)
 - [x] OpenAI Chat Completions → Vertex Gemini via Vertex's OpenAI-compat layer
 - [x] OpenAI Chat Completions → Vertex MaaS partner models (Kimi, GLM, MiniMax, Qwen, Grok)
-- [x] Multiple URL shapes accepted for OpenAI client compatibility (`/v1/chat/completions`, `/chat/completions`, `/openai/v1/chat/completions`)
+- [x] Multiple URL shapes accepted for OpenAI client compatibility: chat completions under the `/openai`, `/gemini`, and bare-root prefixes (e.g. `/openai/v1/chat/completions`, `/gemini/chat/completions`, `/chat/completions`), plus model-discovery (`/v1/models`, `/models`) mirrored under the same prefixes
 - [x] Automatic GCP service-account token refresh
 - [x] launchd (macOS) + systemd (Linux) service recipes
 - [x] Dockerfile + docker-compose for containerized deploy
@@ -242,9 +247,15 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT \
 
 Gemini 2.5 models use an internal "thinking" budget that counts against `max_tokens`. If `max_tokens` is too low, the model may use all its budget on thinking and return no visible output. Raise `max_tokens` to at least 100 for anything beyond trivial replies.
 
+### Hermes (or any OpenAI-chat client) returns `404 {'detail': 'Not Found'}` for Gemini
+
+This happens when an OpenAI-chat client is pointed at the `/gemini` base. That client builds its request URL by appending `/chat/completions` (so it actually calls `/gemini/chat/completions`), but `/gemini` is the *native* `generateContent` route, which has no `chat/completions` handler. `curl` against `/gemini/v1beta/models/...:generateContent` works because that's the native shape; the OpenAI-chat client uses a different shape.
+
+The proxy now accepts the OpenAI-chat shape under the `/gemini` and `/openai` prefixes as well as the bare root, so `transport: openai_chat` works against any of these bases. If you're on an older build, point the provider's `base_url` at `http://127.0.0.1:8787/openai` (or the bare `http://127.0.0.1:8787`) instead of `.../gemini`. Gemini still routes correctly because the OpenAI-compat handler dispatches by the request body's `model`.
+
 ### Request works with `curl` but fails from my OpenAI client
 
-Your client is probably sending requests to a URL shape the shim didn't expect. The shim accepts `/v1/chat/completions`, `/chat/completions`, and `/openai/v1/chat/completions` for OpenAI-compatible traffic. If your client sends something else, file an issue with the exact URL shape and we'll add it.
+Your client is probably sending requests to a URL shape the shim didn't expect. The shim accepts `/chat/completions`, `/v1/chat/completions`, `/openai/v1/chat/completions`, `/openai/chat/completions`, `/gemini/v1/chat/completions`, and `/gemini/chat/completions` for OpenAI-compatible traffic, and mirrors model discovery (`/v1/models`, `/models`) under the same prefixes. If your client sends something else, file an issue with the exact URL shape and we'll add it.
 
 ### Token refresh errors in logs
 

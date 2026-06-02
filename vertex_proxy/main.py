@@ -259,6 +259,59 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             return {"id": model_id, "object": "model", "owned_by": "vertex-proxy"}
         raise HTTPException(status_code=404, detail=f"model '{model_id}' not found")
 
+    # --- OpenAI-client URL tolerance ------------------------------------------
+    # OpenAI-style clients construct their final URL by appending a fixed suffix
+    # ("/chat/completions" for inference, "/models" or "/v1/models" for model
+    # discovery) onto whatever base_url the user configured. A user who wants
+    # Gemini traffic naturally sets base_url to ".../gemini", but that prefix is
+    # the *native* generateContent route, so the appended "/chat/completions"
+    # would 404 (see issue #1). Gemini is reachable through Vertex's OpenAI-compat
+    # endpoint inside _handle_openai, which keys off the request body's `model`
+    # and ignores the URL prefix entirely. So we mount the OpenAI-compat handler
+    # (and the discovery endpoints) under the "/gemini" and "/openai" prefixes as
+    # well as the bare root, letting any reasonable base_url choice work.
+    _chat_alias_paths = (
+        "/openai/chat/completions",
+        "/gemini/v1/chat/completions",
+        "/gemini/chat/completions",
+    )
+    for _path in _chat_alias_paths:
+        app.add_api_route(
+            _path,
+            openai_chat_completions,
+            methods=["POST"],
+            dependencies=[Depends(require_api_key)],
+        )
+
+    # Model-catalog discovery under the same prefixes. Clients probe these before
+    # dispatching; a 404 produces noisy logs and "could not fetch models" warnings
+    # (and a few clients refuse to proceed). Mirror /v1/models everywhere a client
+    # is likely to look.
+    _models_list_alias_paths = (
+        "/models",
+        "/openai/v1/models",
+        "/openai/models",
+        "/gemini/v1/models",
+        "/gemini/models",
+        "/api/v1/models",
+        "/openai/api/v1/models",
+        "/gemini/api/v1/models",
+    )
+    for _path in _models_list_alias_paths:
+        app.add_api_route(
+            _path,
+            list_models,
+            methods=["GET"],
+            dependencies=[Depends(require_api_key)],
+        )
+
+    _model_probe_alias_paths = (
+        "/openai/v1/models/{model_id:path}",
+        "/gemini/v1/models/{model_id:path}",
+    )
+    for _path in _model_probe_alias_paths:
+        app.add_api_route(_path, get_model, methods=["GET"])
+
     return app
 
 
