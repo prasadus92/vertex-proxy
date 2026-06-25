@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-25
+
 ### Added
 - Ollama backend support: route OpenAI-compatible requests to local Ollama servers via `VERTEX_PROXY_OLLAMA_BACKENDS` config. Supports wildcard (`"*"`) for auto-discovery of all models from an Ollama server's `/api/tags` endpoint. Ollama is matched after the Vertex routes so a discovered local model cannot shadow a managed model.
 - Ollama models appear in `/v1/models` with `owned_by=ollama` and `provider=ollama`.
