@@ -21,7 +21,7 @@ from typing import Any
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from . import __version__
@@ -415,6 +415,15 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     )
     for _path in _model_probe_alias_paths:
         app.add_api_route(_path, get_model, methods=["GET"])
+
+    # --- Mini chat web UI ---------------------------------------------------
+
+    if cfg.enable_chat_ui:
+        from .chat_ui import CHAT_HTML
+
+        @app.get("/chat", include_in_schema=False)
+        async def chat_ui() -> HTMLResponse:
+            return HTMLResponse(CHAT_HTML)
 
     return app
 

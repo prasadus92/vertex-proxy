@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `/chat` web UI endpoint for interactive testing of any model through the proxy. Supports model selection, temperature control, system prompts, streaming responses, and markdown rendering. Disable with `VERTEX_PROXY_ENABLE_CHAT_UI=false`.
+
 ## [0.4.0] - 2026-06-25
 
 ### Added

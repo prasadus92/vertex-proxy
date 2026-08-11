@@ -87,6 +87,7 @@ curl -X POST http://127.0.0.1:8787/gemini/v1beta/models/gemini-2.5-flash:generat
 | `POST /openai/v1/chat/completions` | OpenAI Chat Completions | Anthropic Claude (via OpenAI->Anthropic translation) + Gemini (via Vertex OpenAI-compat) + MaaS partner models (Kimi, GLM, MiniMax, Qwen, Grok) |
 | `GET /v1/models` | - | Lists all routable models (OpenAI-compatible fields: id, object, created, owned_by) |
 | `GET /anthropic/v1/models`, `/gemini/v1/models`, `/gemini/v1beta/models` | - | Per-provider model listings (for clients scoped to a single provider base_url) |
+| `GET /chat` | - | Mini chat web UI for interactive testing (disable with `VERTEX_PROXY_ENABLE_CHAT_UI=false`) |
 | `GET /health` | - | Liveness + auth check |
 
 The OpenAI Chat Completions shape is also accepted under the `/gemini` prefix and the bare root, so clients that build their URL from a `base_url` of `.../openai`, `.../gemini`, or the server root all reach the same handler. Model-discovery probes (`/v1/models`, `/models`) are mirrored under those prefixes too.

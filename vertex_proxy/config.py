@@ -78,6 +78,11 @@ class Settings(BaseSettings):
         "gemini-2.0-flash": "gemini-2.0-flash-001",
     }
 
+    # --- Chat UI ---
+    # Serve a mini chat web UI at GET /chat for interactive model testing.
+    # Disable with VERTEX_PROXY_ENABLE_CHAT_UI=false.
+    enable_chat_ui: bool = True
+
     # --- Ollama backends ---
     # Map model names to Ollama-compatible base URLs.
     # Example: {"qwen3:30b-a3b": "http://localhost:11434"}
