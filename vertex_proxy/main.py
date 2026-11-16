@@ -19,7 +19,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-import httpx
+import httpx2
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 _OLLAMA_MODELS: dict[str, str] = {}  # model name -> Ollama base_url
 
 
-async def _discover_ollama_models(cfg: Settings, http: httpx.AsyncClient) -> None:
+async def _discover_ollama_models(cfg: Settings, http: httpx2.AsyncClient) -> None:
     """Populate _OLLAMA_MODELS from cfg.ollama_backends.
 
     Clears the registry first so a re-run (a second startup in the same
@@ -73,11 +73,11 @@ async def _discover_ollama_models(cfg: Settings, http: httpx.AsyncClient) -> Non
         )
 
 
-DEFAULT_HTTP_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+DEFAULT_HTTP_TIMEOUT = httpx2.Timeout(120.0, connect=10.0)
 # Vertex streaming responses can legitimately go quiet for longer than the
 # default read window while the model is thinking. Keep connect/write/pool
 # bounded, but do not abort a live stream just because no chunk arrived.
-STREAM_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=120.0, pool=120.0)
+STREAM_HTTP_TIMEOUT = httpx2.Timeout(connect=10.0, read=None, write=120.0, pool=120.0)
 
 
 # --- Metrics (Prometheus-format, tiny in-memory counters) -------------------
@@ -155,7 +155,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         logger.info("vertex-proxy ready; project=%s", cfg.project_id)
         app.state.token_mgr = token_mgr
         app.state.cfg = cfg
-        app.state.http = httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT)
+        app.state.http = httpx2.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT)
         await _discover_ollama_models(cfg, app.state.http)
         try:
             yield
@@ -471,7 +471,7 @@ async def _handle_anthropic(request: Request, cfg: Settings, tm: TokenManager) -
         streaming,
     )
 
-    http: httpx.AsyncClient = request.app.state.http
+    http: httpx2.AsyncClient = request.app.state.http
     if streaming:
         _METRICS.record_request("anthropic", requested_model, 200)
         return StreamingResponse(
@@ -481,7 +481,7 @@ async def _handle_anthropic(request: Request, cfg: Settings, tm: TokenManager) -
 
     try:
         resp = await http.post(url, headers=headers, json=upstream_body)
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         logger.error("anthropic upstream error: %s", exc)
         raise HTTPException(status_code=502, detail=f"upstream error: {exc}") from exc
 
@@ -532,7 +532,7 @@ async def _handle_gemini(
         streaming,
     )
 
-    http: httpx.AsyncClient = request.app.state.http
+    http: httpx2.AsyncClient = request.app.state.http
     if streaming:
         _METRICS.record_request("gemini", requested_model, 200)
         return StreamingResponse(
@@ -542,7 +542,7 @@ async def _handle_gemini(
 
     try:
         resp = await http.post(url, headers=headers, json=body)
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         logger.error("gemini upstream error: %s", exc)
         raise HTTPException(status_code=502, detail=f"upstream error: {exc}") from exc
 
@@ -575,7 +575,7 @@ async def _handle_openai(request: Request, cfg: Settings, tm: TokenManager) -> A
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    http: httpx.AsyncClient = request.app.state.http
+    http: httpx2.AsyncClient = request.app.state.http
 
     # --- routing: Anthropic Claude (OpenAI → Anthropic translation) ---------
     if requested_model in cfg.anthropic_model_aliases:
@@ -643,7 +643,7 @@ async def _handle_openai(request: Request, cfg: Settings, tm: TokenManager) -> A
 
     try:
         resp = await http.post(url, headers=headers, json=upstream_body)
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         logger.error("maas upstream error: %s", exc)
         raise HTTPException(status_code=502, detail=f"upstream error: {exc}") from exc
 
@@ -658,7 +658,7 @@ async def _handle_ollama(
     requested_model: str,
     streaming: bool,
     base_url: str,
-    http: httpx.AsyncClient,
+    http: httpx2.AsyncClient,
 ) -> Any:
     """Forward to an Ollama server's OpenAI-compatible endpoint."""
     url = f"{base_url}/v1/chat/completions"
@@ -681,7 +681,7 @@ async def _handle_ollama(
 
     try:
         resp = await http.post(url, headers=headers, json=upstream_body)
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         logger.error("ollama upstream error: %s", exc)
         raise HTTPException(status_code=502, detail=f"upstream error: {exc}") from exc
 
@@ -698,7 +698,7 @@ async def _handle_openai_to_anthropic(
     cfg: Settings,
     token: str,
     headers: dict[str, str],
-    http: httpx.AsyncClient,
+    http: httpx2.AsyncClient,
 ) -> Any:
     """Translate OpenAI Chat Completions → Anthropic Messages, call Vertex, translate back."""
     vertex_model = cfg.anthropic_model_aliases[requested_model]
@@ -730,7 +730,7 @@ async def _handle_openai_to_anthropic(
 
     try:
         resp = await http.post(url, headers=headers, json=anthropic_body)
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         logger.error("anthropic upstream error (openai bridge): %s", exc)
         raise HTTPException(status_code=502, detail=f"upstream error: {exc}") from exc
 
@@ -763,7 +763,7 @@ async def _handle_openai_to_anthropic(
 
 
 async def _stream_anthropic_as_openai(
-    http: httpx.AsyncClient,
+    http: httpx2.AsyncClient,
     url: str,
     headers: dict[str, str],
     body: dict[str, Any],
@@ -795,13 +795,13 @@ async def _stream_anthropic_as_openai(
                     translated = anthropic_stream_to_openai_stream(line, model, stream_id)
                     if translated:
                         yield translated
-    except httpx.ReadTimeout as exc:
+    except httpx2.ReadTimeout as exc:
         logger.warning("upstream anthropic stream read timeout: %s", exc)
         yield _stream_error(
             "upstream_read_timeout",
             "upstream stream stalled before completion",
         )
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         logger.error("upstream anthropic stream error: %s", exc)
         yield _stream_error("upstream_stream_error", str(exc))
 
@@ -810,7 +810,7 @@ async def _stream_anthropic_as_openai(
 
 
 async def _stream_bytes(
-    http: httpx.AsyncClient,
+    http: httpx2.AsyncClient,
     url: str,
     headers: dict[str, str],
     body: dict[str, Any],
@@ -836,13 +836,13 @@ async def _stream_bytes(
                 return
             async for chunk in r.aiter_bytes():
                 yield chunk
-    except httpx.ReadTimeout as exc:
+    except httpx2.ReadTimeout as exc:
         logger.warning("upstream stream read timeout: %s", exc)
         yield _stream_error(
             "upstream_read_timeout",
             "upstream stream stalled before completion",
         )
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         logger.error("upstream stream error: %s", exc)
         yield _stream_error("upstream_stream_error", str(exc))
 
@@ -859,7 +859,7 @@ def _stream_error(error_type: str, message: str, status_code: int | None = None)
     return f"event: error\ndata: {json.dumps(payload)}\n\n".encode()
 
 
-def _passthrough_response(resp: httpx.Response, route: str = "", model: str = "") -> JSONResponse:
+def _passthrough_response(resp: httpx2.Response, route: str = "", model: str = "") -> JSONResponse:
     """Forward upstream status + JSON body to the client.
 
     If ``route`` + ``model`` are provided and metrics are enabled, record
