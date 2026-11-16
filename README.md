@@ -22,6 +22,7 @@ You need Python 3.11 or later, a GCP project with the Vertex AI API enabled, and
 
 ```bash
 uv tool install vertex-proxy        # or: pipx install vertex-proxy
+# the latest main branch: uv tool install git+https://github.com/prasadus92/vertex-proxy
 ```
 
 Run it with a service-account key:
@@ -200,7 +201,7 @@ docker run --rm -p 127.0.0.1:8787:8787 \
   vertex-proxy
 ```
 
-[`docker-compose.yaml`](docker-compose.yaml) does the same with a `.env` file. The image runs as a non-root user and has a health check.
+[`docker-compose.yaml`](docker-compose.yaml) does the same with a `.env` file. The image runs as a non-root user and has a health check. Tagged releases publish it as `ghcr.io/prasadus92/vertex-proxy`.
 
 ## Run as a service
 
