@@ -41,7 +41,9 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.163.1",
-    "uvicorn[standard]>=0.54.0",
+    "uvicorn>=0.54.0",
+    "httptools>=0.9.0",
+    "uvloop>=0.23.0; sys_platform != 'win32' and platform_python_implementation == 'CPython'",
     "google-auth[requests]>=2.62.2",
     "httpx2>=2.16.2",
     "pydantic>=2.14.3",

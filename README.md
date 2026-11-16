@@ -43,8 +43,7 @@ pipx install vertex-proxy
 ```bash
 git clone https://github.com/prasadus92/vertex-proxy.git
 cd vertex-proxy
-python -m venv .venv
-.venv/bin/pip install -e .
+uv sync
 ```
 
 ## Run
@@ -65,7 +64,7 @@ vertex-proxy \
   --port 8787
 ```
 
-(From a source checkout, the command is `.venv/bin/vertex-proxy`.)
+(From a source checkout, run `uv run vertex-proxy`.)
 
 Verify:
 
@@ -266,7 +265,7 @@ Do not expose it to a public interface. If you need remote access, put it behind
 - [x] Optional bearer-token auth on the proxy itself (for remote deploys)
 - [x] Prometheus metrics endpoint at `/metrics`
 - [x] `pipx` / `uv` / `uvx` install via PyPI (tag-triggered OIDC Trusted Publishing release workflow)
-- [x] 22 unit tests, GitHub Actions CI on Python 3.11 + 3.12
+- [x] 59 unit tests, GitHub Actions CI on Python 3.11 to 3.15
 
 ### Tested with
 - [x] Hermes Agent: verified end-to-end with live Gemini 2.5 Flash dispatch

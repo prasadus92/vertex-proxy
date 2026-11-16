@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Supports Python 3.11 to 3.15, and the Docker image runs Python 3.15. Dependencies are raised to their current releases and pinned in a committed `uv.lock`.
+- The HTTP client is now `httpx2`, the maintained continuation of `httpx`. It verifies TLS against the operating system's trust store instead of the `certifi` bundle. On a minimal Linux host, install `ca-certificates`, or set `SSL_CERT_FILE` to a CA bundle.
+- `uvicorn[standard]` is replaced by `uvicorn` with `uvloop` and `httptools`, dropping unused file-watching and YAML dependencies.
+
 ## [0.4.0] - 2026-06-25
 
 ### Added
