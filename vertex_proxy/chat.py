@@ -14,9 +14,10 @@ import httpx2
 
 from .bridge import StreamTranslator, anthropic_to_openai, openai_to_anthropic
 from .catalog import ChatRoute, Provider
-from .errors import ErrorKind, ProxyError, UpstreamContext
+from .errors import ProxyError, UpstreamContext
 from .metrics import usage_tokens
 from .services import Services
+from .upstream import json_payload
 
 ANTHROPIC_VERSION = "vertex-2023-10-16"
 
@@ -49,7 +50,7 @@ class ChatService:
             if route.provider is Provider.ANTHROPIC:
                 url, payload, context = self._anthropic_call(body, route, stream=False)
                 response = await self._services.upstream.post(url, json=payload, context=context)
-                result = anthropic_to_openai(_json(response), model)
+                result = anthropic_to_openai(json_payload(response), model)
             else:
                 url, context, authenticated = self._openai_target(route)
                 response = await self._services.upstream.post(
@@ -58,7 +59,7 @@ class ChatService:
                     context=context,
                     authenticated=authenticated,
                 )
-                result = _json(response)
+                result = json_payload(response)
         metrics.record(route.provider.value, model, response.status_code, *usage_tokens(result))
         return result
 
@@ -105,10 +106,3 @@ class ChatService:
         )
         context = UpstreamContext(endpoints.project_id, location, route.upstream_model)
         return endpoints.openai_chat(location), context, True
-
-
-def _json(response: httpx2.Response) -> Any:
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise ProxyError(502, ErrorKind.UPSTREAM, "upstream returned a non-JSON response") from exc

@@ -135,7 +135,7 @@ codex -c model_provider=vertex \
   -m gemini-3.5-flash
 ```
 
-Tool calls, MCP tools and streaming work with Claude, Gemini and the open models. Codex warns that it has no metadata for the model name; that is expected for models outside OpenAI's list. Codex's built-in web search has no Vertex equivalent, so the proxy leaves it out of the request. [`examples/codex-config.toml`](examples/codex-config.toml) has the same settings.
+Tool calls, MCP tools and streaming work with Claude, Gemini and the open models. Codex warns that it has no metadata for the model name; that is expected for models outside OpenAI's list. Codex's built-in web search has no Vertex equivalent, so the proxy leaves it out of the request. When a reply stops at the output-token limit, the proxy reports `response.incomplete` as OpenAI does, and Codex retries that turn up to 5 times before it shows the error. [`examples/codex-config.toml`](examples/codex-config.toml) has the same settings.
 
 ### Local models with Ollama
 

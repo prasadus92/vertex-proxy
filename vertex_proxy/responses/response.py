@@ -8,9 +8,9 @@ from .carrier import tool_extras_item
 from .output import (
     message_item,
     new_id,
+    outcome,
     response_object,
     responses_usage,
-    status_for,
     tool_call_item,
 )
 from .request import ToolNames
@@ -34,10 +34,12 @@ def chat_to_response(chat: dict[str, Any], model: str, names: ToolNames) -> dict
             extras[call_id] = call["extra_content"]
     if extras:
         output.append(tool_extras_item(extras))
+    status, reason = outcome(choice.get("finish_reason"))
     return response_object(
         new_id("resp"),
         model,
-        status=status_for(choice.get("finish_reason")),
+        status=status,
         output=output,
         usage=responses_usage(chat.get("usage")),
+        incomplete_reason=reason,
     )

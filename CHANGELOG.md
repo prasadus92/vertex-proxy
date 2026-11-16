@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gemini 3 thought signatures on tool calls are carried through the client in a `reasoning` item, so multi-turn tool use keeps working.
   - A context-length rejection arrives in the stream as `context_length_exceeded`, so Codex compacts the conversation and retries.
   - Tools with no Chat Completions form, such as web search, are left out.
+  - History items with no Chat Completions form are left out. Messages from other agents (`agent_message`) become user turns, and system and developer messages are merged into 1 leading system message, which some open-model chat templates require.
+  - `previous_response_id` is rejected with a 400, because the proxy stores nothing.
+  - A `content_filter` stop is reported as `incomplete`.
 - `examples/codex-config.toml`.
 
 ### Changed

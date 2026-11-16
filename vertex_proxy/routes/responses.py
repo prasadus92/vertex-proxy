@@ -31,11 +31,16 @@ async def create_response(request: Request, services: Services = Depends(get_ser
         stream = await chat.stream(chat_body, model)
     except ProxyError as exc:
         # In-stream, so clients such as Codex compact the conversation and retry.
-        if failure_code(exc.kind.api_type, exc.message) != "context_length_exceeded":
+        if failure_code({"type": exc.kind.api_type}, exc.message) != "context_length_exceeded":
             raise
         events = [*translator.start(), translator.fail("context_length_exceeded", exc.message)]
         return StreamingResponse(_replay(events), media_type="text/event-stream")
-    return relay_stream(stream.response, Dialect.OPENAI, translator.translate(stream.chunks))
+    return relay_stream(
+        stream.response,
+        Dialect.OPENAI,
+        translator.translate(stream.chunks),
+        media_type="text/event-stream",
+    )
 
 
 async def _replay(events: list[bytes]) -> AsyncIterator[bytes]:

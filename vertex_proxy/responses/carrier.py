@@ -3,6 +3,7 @@
 Gemini 3 returns `extra_content` (a thought signature) on each tool call and rejects the next turn
 without it. Responses clients such as Codex keep only standard fields on a function_call, but they
 send reasoning items back unchanged, so the extras travel in a reasoning item's encrypted_content.
+The content is base64-encoded JSON, readable by the client; it is not encrypted.
 """
 
 from __future__ import annotations
@@ -30,13 +31,17 @@ def read_tool_extras(items: list[Any]) -> dict[str, Any]:
     """Every call_id to extra_content map found in reasoning items this module wrote."""
     extras: dict[str, Any] = {}
     for item in items:
-        content = item.get("encrypted_content") if isinstance(item, dict) else None
-        if item.get("type") != "reasoning" or not isinstance(content, str):
+        if not isinstance(item, dict) or item.get("type") != "reasoning":
             continue
-        if not content.startswith(_PREFIX):
+        content = item.get("encrypted_content")
+        if not isinstance(content, str) or not content.startswith(_PREFIX):
             continue
         try:
-            extras.update(json.loads(base64.urlsafe_b64decode(content[len(_PREFIX) :])))
+            decoded = json.loads(base64.urlsafe_b64decode(content[len(_PREFIX) :]))
         except ValueError:
             continue
+        if isinstance(decoded, dict):
+            extras.update(
+                {k: v for k, v in decoded.items() if isinstance(k, str) and isinstance(v, dict)}
+            )
     return extras

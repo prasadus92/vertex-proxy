@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hmac
-import json
 import re
 from collections.abc import Callable
 from typing import Any
@@ -15,7 +14,7 @@ from fastapi.responses import JSONResponse, Response
 from ..errors import Dialect, ErrorKind, ProxyError, UpstreamContext
 from ..metrics import usage_tokens
 from ..services import Services
-from ..upstream import relay_stream
+from ..upstream import json_payload, relay_stream
 
 _PATH_SEGMENT = re.compile(r"^[A-Za-z0-9._@-]+$")
 
@@ -126,13 +125,6 @@ async def forward_json(
         response = await upstream.post(
             url, json=payload, context=context, authenticated=authenticated
         )
-    data = json_body(response.content)
+    data = json_payload(response)
     metrics.record(metric_route, model, response.status_code, *usage_tokens(data))
     return JSONResponse(data, status_code=response.status_code)
-
-
-def json_body(content: bytes) -> Any:
-    try:
-        return json.loads(content)
-    except ValueError as exc:
-        raise ProxyError(502, ErrorKind.UPSTREAM, "upstream returned a non-JSON response") from exc

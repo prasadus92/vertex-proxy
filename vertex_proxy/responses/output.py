@@ -38,23 +38,17 @@ def message_item(item_id: str, text: str, status: str = "completed") -> dict[str
 def tool_call_item(
     item_id: str, call_id: str, tool: ToolName, arguments: str, status: str = "completed"
 ) -> dict[str, Any]:
-    if tool.custom:
-        return {
-            "type": "custom_tool_call",
-            "id": item_id,
-            "status": status,
-            "call_id": call_id,
-            "name": tool.name,
-            "input": _custom_input(arguments),
-        }
     item: dict[str, Any] = {
-        "type": "function_call",
+        "type": "custom_tool_call" if tool.custom else "function_call",
         "id": item_id,
         "status": status,
         "call_id": call_id,
         "name": tool.name,
-        "arguments": arguments,
     }
+    if tool.custom:
+        item["input"] = _custom_input(arguments)
+    else:
+        item["arguments"] = arguments
     if tool.namespace:
         item["namespace"] = tool.namespace
     return item
@@ -97,6 +91,7 @@ def response_object(
     output: list[dict[str, Any]] | None = None,
     usage: dict[str, Any] | None = None,
     error: dict[str, Any] | None = None,
+    incomplete_reason: str | None = None,
     created_at: int | None = None,
 ) -> dict[str, Any]:
     return {
@@ -108,21 +103,34 @@ def response_object(
         "output": output or [],
         "usage": usage,
         "error": error,
-        "incomplete_details": {"reason": "max_output_tokens"} if status == "incomplete" else None,
+        "incomplete_details": {"reason": incomplete_reason} if incomplete_reason else None,
     }
 
 
-def status_for(finish_reason: str | None) -> str:
-    return "incomplete" if finish_reason == "length" else "completed"
+_INCOMPLETE_REASONS = {"length": "max_output_tokens", "content_filter": "content_filter"}
 
 
-def failure_code(error_type: str | None, message: str) -> str:
-    """The Responses error code that makes a client such as Codex react the right way."""
+def outcome(finish_reason: str | None) -> tuple[str, str | None]:
+    """The response status and incomplete reason for a Chat Completions finish_reason."""
+    reason = _INCOMPLETE_REASONS.get(finish_reason or "")
+    return ("incomplete", reason) if reason else ("completed", None)
+
+
+def failure_code(error: dict[str, Any], message: str) -> str:
+    """The Responses error code that makes a client such as Codex react the right way.
+
+    ``error`` is an OpenAI-shaped (``type``) or Google-shaped (``code``, ``status``) error.
+    """
     lowered = message.lower()
     if any(phrase in lowered for phrase in CONTEXT_OVERFLOW_PHRASES):
         return "context_length_exceeded"
-    if error_type == "rate_limit_error":
+    kind = error.get("type")
+    if (
+        kind == "rate_limit_error"
+        or error.get("code") == 429
+        or error.get("status") == "RESOURCE_EXHAUSTED"
+    ):
         return "rate_limit_exceeded"
-    if error_type == "invalid_request_error":
+    if kind == "invalid_request_error":
         return "invalid_prompt"
     return "server_error"
