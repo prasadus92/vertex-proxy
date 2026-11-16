@@ -65,7 +65,7 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`. It builds the package a
 2. Move the `[Unreleased]` entries in `CHANGELOG.md` under a dated version heading.
 3. Merge that change, then tag the merge commit on `main` and push the tag:
    ```bash
-   git tag -s v0.5.0 -m "v0.5.0"
-   git push origin v0.5.0
+   git tag -s vX.Y.Z -m "vX.Y.Z"
+   git push origin vX.Y.Z
    ```
 4. Create the GitHub release from the tag, with the changelog section as its notes.

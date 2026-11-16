@@ -23,9 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `examples/codex-config.toml`.
 
 ### Changed
-- The OpenAI-to-Claude bridge defaults `max_tokens` to 32000 when the client sends none. Claude 4.5 and later allow at least 64000, and agent turns often write whole files.
-- Requests to Claude through the OpenAI routes are counted in metrics under `anthropic-vertex` instead of `openai-anthropic`.
-- Chat Completions routing moved out of the route module into `vertex_proxy/chat.py`, so the Chat Completions and Responses routes share it.
+- The OpenAI-to-Claude bridge defaults `max_tokens` to 32000, up from 8192, when the client sends none. Claude 4.5 and later allow at least 64000, and agent turns often write whole files.
+- Requests to Claude through the OpenAI routes are counted in metrics under `anthropic-vertex` instead of `openai-anthropic`. Update any dashboards or alerts that filter on the old label.
 
 ## [0.5.0] - 2026-11-16
 
