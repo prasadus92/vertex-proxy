@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--version`, and the version in `/health`.
 
 ### Changed
+- Supports Python 3.11 to 3.15, and the Docker image runs Python 3.15. Dependencies are raised to their current releases and pinned in a committed `uv.lock`.
+- The HTTP client is now `httpx2`, the maintained continuation of `httpx`. It verifies TLS against the operating system's trust store instead of the `certifi` bundle. On a minimal Linux host, install `ca-certificates`, or set `SSL_CERT_FILE` to a CA bundle.
+- `uvicorn[standard]` is replaced by `uvicorn` with `uvloop` and `httptools`, dropping unused file-watching and YAML dependencies.
 - All three locations default to `global`. Claude 4.7 and later are not served from regional endpoints, and global is the cheapest option.
 - The model catalog matches Vertex AI as of November 2026: Claude Fable 5.x, Opus 5.5 and 5, Sonnet 5.5 and 5, Haiku 5.5, and the 4.x models still served; Gemini 4, 3.8, 3.7, 3.5 and 3.1; GLM 5.2, gpt-oss-120b and Gemma 4 on MaaS. Models that Vertex has retired or deprecated, or no longer lists for this endpoint (Gemini 2.0 and 2.5, Opus 4.1 and 4, Sonnet 4, Kimi, MiniMax, Qwen, Grok), were removed from the listing. They can still be requested by name.
 - Gemini and MaaS chat requests use Vertex's `v1` OpenAI-compatible endpoint with publisher-prefixed model IDs.
