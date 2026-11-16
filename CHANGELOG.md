@@ -26,13 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The model catalog matches Vertex AI as of November 2026: Claude Fable 5.x, Opus 5.5 and 5, Sonnet 5.5 and 5, Haiku 5.5, and the 4.x models still served; Gemini 4, 3.8, 3.7, 3.5 and 3.1; GLM 5.2, gpt-oss-120b and Gemma 4 on MaaS. Models that Vertex has retired or deprecated, or no longer lists for this endpoint (Gemini 2.0 and 2.5, Opus 4.1 and 4, Sonnet 4, Kimi, MiniMax, Qwen, Grok), were removed from the listing. They can still be requested by name.
 - Gemini and MaaS chat requests use Vertex's `v1` OpenAI-compatible endpoint with publisher-prefixed model IDs.
 - `*_model_aliases` settings now add to the built-in catalog instead of replacing it.
-- Credentials files may be user credentials or workload identity federation configs as well as service-account keys.
+- A credentials file can be a service-account key, user credentials, a workload identity federation config (file, URL, executable or AWS sourced), workforce identity user credentials, or an impersonated service account.
 - Upstream errors on streaming requests are returned as real HTTP errors before the stream starts, so clients retry them.
 - Split the single 880-line module into routes, catalog, errors, upstream and config modules; tests run against a fake Vertex transport.
 
 ### Security
 - The proxy API key is compared in constant time, model probes now require it, and a key sent in the query string is not forwarded upstream.
-- Model and action names in URLs are validated before they are placed in the upstream URL.
+- Model and action names in URLs, and the configured locations, are validated before they are placed in an upstream URL.
+- The OpenAPI schema and docs pages are no longer served, and `/health` omits the project when an API key is required.
 
 ## [0.4.0] - 2026-06-25
 

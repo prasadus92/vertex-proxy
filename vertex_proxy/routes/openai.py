@@ -21,6 +21,7 @@ from ..upstream import relay_stream
 from .anthropic import ANTHROPIC_VERSION
 from .common import (
     Services,
+    counting_failures,
     dialect_router,
     forward_json,
     get_services,
@@ -96,15 +97,12 @@ async def _via_anthropic(
     url = services.endpoints.anthropic(location, vertex_model, stream=stream)
     context = UpstreamContext(services.endpoints.project_id, location, vertex_model)
     metrics = services.metrics
-    try:
+    with counting_failures(metrics, "openai-anthropic", requested):
         if stream:
             response = await services.upstream.open_stream(url, json=payload, context=context)
             metrics.record("openai-anthropic", requested, response.status_code)
             return relay_stream(response, Dialect.OPENAI, _translate_stream(response, requested))
         response = await services.upstream.post(url, json=payload, context=context)
-    except ProxyError as exc:
-        metrics.record("openai-anthropic", requested, exc.status)
-        raise
     result = anthropic_to_openai_response(json_body(response.content), requested)
     usage = result["usage"]
     metrics.record(
