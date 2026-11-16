@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-16
+
 ### Added
 - Claude Code pass-through: `POST /vertex/...` accepts Vertex AI's own `rawPredict` and `streamRawPredict` calls and adds the proxy's credentials. With `CLAUDE_CODE_USE_VERTEX=1`, `ANTHROPIC_VERTEX_BASE_URL` and `CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, Claude Code sends only the betas Vertex accepts, so beta features that Vertex supports keep working.
 - `POST /v1/messages/count_tokens` (and under `/anthropic`), backed by Vertex's Claude count-tokens endpoint, so Claude Code's `/context` shows exact counts.
@@ -17,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The proxy API key is accepted as `Authorization: Bearer`, `x-api-key` or `x-goog-api-key`, so Anthropic and Gemini SDKs can send it.
 - Any `claude-*` model name now works without a catalog entry, and `-YYYYMMDD` suffixes are rewritten to Vertex's `@YYYYMMDD` form. Any `publisher/model` name is sent to the Vertex MaaS endpoint.
 - `--version`, and the version in `/health`.
+- `POST /gemini/v1/models/{model}:{action}`, the path current google-genai releases call, alongside `v1beta`.
+- Tagged releases also publish a multi-architecture Docker image to `ghcr.io/prasadus92/vertex-proxy`.
+- `CLAUDE.md` (with an `AGENTS.md` link) and `.claude/settings.json` for coding agents working on the repo.
 - OpenAI-to-Claude bridge parity:
   - `tools` and `tool_choice` (including `required`, a named function and `parallel_tool_calls: false`) are translated. Before, tools were dropped, so Claude never saw them.
   - Streamed tool calls arrive as OpenAI `tool_calls` deltas.
@@ -24,19 +29,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The first chunk carries `role: assistant`.
   - Stream `error` events are forwarded.
 - OpenAI image inputs (`image_url` with a data URL or an https URL) become Claude image blocks. The `developer` role is treated as a system message.
-- The results of parallel tool calls are merged into 1 Claude user turn.
+- Consecutive turns with the same role, such as tool results followed by a user message, are merged into 1 Claude turn.
+- A tool called with no arguments streams `"{}"` as its arguments.
 - Cached input tokens count toward `prompt_tokens`, and are also reported as `prompt_tokens_details.cached_tokens`.
 
 ### Changed
+- The README is rewritten around setup for Claude Code, the Anthropic, OpenAI and Gemini SDKs, and other clients.
+- The macOS LaunchAgent label is now `io.github.prasadus92.vertex-proxy`. `launchd/install.sh` removes the agent an earlier release installed, and it uses the `vertex-proxy` found on `PATH` (or `--bin`) instead of a virtualenv inside the repo.
 - Supports Python 3.11 to 3.15, and the Docker image runs Python 3.15. Dependencies are raised to their current releases and pinned in a committed `uv.lock`.
 - The HTTP client is now `httpx2`, the maintained continuation of `httpx`. It verifies TLS against the operating system's trust store instead of the `certifi` bundle. On a minimal Linux host, install `ca-certificates`, or set `SSL_CERT_FILE` to a CA bundle.
 - `uvicorn[standard]` is replaced by `uvicorn` with `uvloop` and `httptools`, dropping unused file-watching and YAML dependencies.
-- All three locations default to `global`. Claude 4.7 and later are not served from regional endpoints, and global is the cheapest option.
+- All 3 locations default to `global`. Claude 4.7 and later are not served from regional endpoints, and global is the cheapest option.
 - The model catalog matches Vertex AI as of November 2026: Claude Fable 5.x, Opus 5.5 and 5, Sonnet 5.5 and 5, Haiku 5.5, and the 4.x models still served; Gemini 4, 3.8, 3.7, 3.5 and 3.1; GLM 5.2, gpt-oss-120b and Gemma 4 on MaaS. Models that Vertex has retired or deprecated, or no longer lists for this endpoint (Gemini 2.0 and 2.5, Opus 4.1 and 4, Sonnet 4, Kimi, MiniMax, Qwen, Grok), were removed from the listing. They can still be requested by name.
 - Gemini and MaaS chat requests use Vertex's `v1` OpenAI-compatible endpoint with publisher-prefixed model IDs.
 - `*_model_aliases` settings now add to the built-in catalog instead of replacing it.
 - A credentials file can be a service-account key, user credentials, a workload identity federation config (file, URL, executable or AWS sourced), workforce identity user credentials, or an impersonated service account.
-- The bridge reports `finish_reason: length`, not `tool_calls`, when output stops at `max_tokens` in the middle of a tool call. Unsupported roles, content parts, tool types and `tool_choice` values return a 400 that names them. Before, they were passed on silently.
+- The bridge reports `finish_reason: length`, not `tool_calls`, when output stops at `max_tokens` in the middle of a tool call. Unsupported roles, content parts, tool types and `tool_choice` values, `n` above 1, `response_format` `json_object` or `json_schema`, and a `temperature` above 1 return a 400 that names them. Before, they were passed on or dropped silently. `top_p` is dropped when `temperature` is set, because current Claude models reject both. The default `max_tokens` is 8192.
 - Upstream errors on streaming requests are returned as real HTTP errors before the stream starts, so clients retry them.
 - Split the single 880-line module into routes, catalog, errors, upstream and config modules; tests run against a fake Vertex transport.
 

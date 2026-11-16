@@ -1,94 +1,101 @@
 #!/usr/bin/env bash
-# Install vertex-proxy as a launchd service on macOS.
+# Install vertex-proxy as a macOS LaunchAgent that starts at login and restarts on crash.
 #
 # Usage:
-#   ./install.sh --credentials /path/to/gcp-key.json --project my-gcp-project
-#
-# After install, the service runs as a LaunchAgent under your user account.
-# Listens on http://127.0.0.1:8787. Auto-restarts on crash.
+#   ./install.sh --credentials /path/to/key.json --project my-gcp-project [--bin /path/to/vertex-proxy]
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PLIST_NAME="ai.hermes.vertex-proxy.plist"
-PLIST_TEMPLATE="$SCRIPT_DIR/${PLIST_NAME}.template"
-PLIST_DEST="$HOME/Library/LaunchAgents/$PLIST_NAME"
+LABEL="io.github.prasadus92.vertex-proxy"
+PLIST_TEMPLATE="$SCRIPT_DIR/vertex-proxy.plist.template"
+PLIST_DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
+# Releases up to 0.4.0 installed the agent under this label.
+LEGACY_PLIST="$HOME/Library/LaunchAgents/ai.hermes.vertex-proxy.plist"
 
 CREDENTIALS_PATH=""
 PROJECT_ID=""
+BIN="$(command -v vertex-proxy || true)"
 
 usage() {
     cat <<EOF
-usage: ./install.sh --credentials PATH --project PROJECT_ID
+usage: ./install.sh --credentials PATH --project PROJECT_ID [--bin PATH]
 
-Options:
-  --credentials PATH   Absolute path to GCP service-account JSON
+  --credentials PATH   Google Cloud credentials JSON file
   --project PROJECT    GCP project ID
-  -h, --help           Show this help
-
-Requires:
-  - vertex-proxy installed under \$REPO_ROOT/.venv
-    (run: python -m venv .venv && .venv/bin/pip install -e .)
+  --bin PATH           vertex-proxy executable (default: the one on PATH)
 EOF
+}
+
+absolute() {
+    (cd "$(dirname "$1")" && printf '%s/%s\n' "$(pwd)" "$(basename "$1")")
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --credentials) CREDENTIALS_PATH="$2"; shift 2;;
-        --project)     PROJECT_ID="$2"; shift 2;;
-        -h|--help)     usage; exit 0;;
-        *) echo "unknown arg: $1" >&2; usage; exit 2;;
+        --credentials|--project|--bin)
+            if [[ $# -lt 2 ]]; then
+                echo "error: $1 needs a value" >&2
+                exit 2
+            fi
+            case "$1" in
+                --credentials) CREDENTIALS_PATH="$2";;
+                --project)     PROJECT_ID="$2";;
+                --bin)         BIN="$2";;
+            esac
+            shift 2;;
+        -h|--help) usage; exit 0;;
+        *) echo "unknown argument: $1" >&2; usage; exit 2;;
     esac
 done
 
 if [[ -z "$CREDENTIALS_PATH" || -z "$PROJECT_ID" ]]; then
-    echo "ERROR: --credentials and --project are required" >&2
+    echo "error: --credentials and --project are required" >&2
     usage
     exit 2
 fi
-
 if [[ ! -f "$CREDENTIALS_PATH" ]]; then
-    echo "ERROR: credentials file not found: $CREDENTIALS_PATH" >&2
+    echo "error: credentials file not found: $CREDENTIALS_PATH" >&2
     exit 1
 fi
-
-if [[ ! -x "$REPO_ROOT/.venv/bin/vertex-proxy" ]]; then
-    echo "ERROR: vertex-proxy not installed under $REPO_ROOT/.venv" >&2
-    echo "run: python -m venv .venv && .venv/bin/pip install -e ." >&2
+if [[ -z "$BIN" || ! -x "$BIN" ]]; then
+    echo "error: vertex-proxy not found; install it (uv tool install vertex-proxy) or pass --bin" >&2
     exit 1
 fi
+CREDENTIALS_PATH="$(absolute "$CREDENTIALS_PATH")"
+BIN="$(absolute "$BIN")"
 
-if [[ ! -f "$PLIST_TEMPLATE" ]]; then
-    echo "ERROR: plist template missing: $PLIST_TEMPLATE" >&2
-    exit 1
+if [[ -f "$LEGACY_PLIST" ]]; then
+    launchctl unload "$LEGACY_PLIST" 2>/dev/null || true
+    rm -f "$LEGACY_PLIST"
 fi
-
-# Render template
-rendered="$(mktemp)"
-trap 'rm -f "$rendered"' EXIT
-sed \
-    -e "s|{{INSTALL_DIR}}|$REPO_ROOT|g" \
-    -e "s|{{CREDENTIALS_PATH}}|$CREDENTIALS_PATH|g" \
-    -e "s|{{PROJECT_ID}}|$PROJECT_ID|g" \
-    -e "s|{{HOME}}|$HOME|g" \
-    "$PLIST_TEMPLATE" > "$rendered"
 
 mkdir -p "$HOME/Library/LaunchAgents"
-cp "$rendered" "$PLIST_DEST"
-
-# Idempotent reload
 launchctl unload "$PLIST_DEST" 2>/dev/null || true
-launchctl load "$PLIST_DEST"
-
-sleep 2
-if curl -fsS http://127.0.0.1:8787/health >/dev/null 2>&1; then
-    echo "vertex-proxy installed and running"
-    echo "  plist: $PLIST_DEST"
-    echo "  logs:  $HOME/Library/Logs/vertex-proxy.log"
-    echo "  stop:  launchctl unload $PLIST_DEST"
-else
-    echo "WARNING: vertex-proxy loaded but health check failed"
-    echo "  check: $HOME/Library/Logs/vertex-proxy.err"
+cp "$PLIST_TEMPLATE" "$PLIST_DEST"
+plutil -replace Label -string "$LABEL" "$PLIST_DEST"
+plutil -replace ProgramArguments -array "$PLIST_DEST"
+plutil -insert ProgramArguments -string "$BIN" -append "$PLIST_DEST"
+plutil -replace EnvironmentVariables.VERTEX_PROXY_CREDENTIALS_PATH -string "$CREDENTIALS_PATH" "$PLIST_DEST"
+plutil -replace EnvironmentVariables.VERTEX_PROXY_PROJECT_ID -string "$PROJECT_ID" "$PLIST_DEST"
+plutil -replace StandardOutPath -string "$HOME/Library/Logs/vertex-proxy.log" "$PLIST_DEST"
+plutil -replace StandardErrorPath -string "$HOME/Library/Logs/vertex-proxy.err" "$PLIST_DEST"
+plutil -lint -s "$PLIST_DEST"
+if grep -q '{{' "$PLIST_DEST"; then
+    echo "error: $PLIST_DEST still has template placeholders" >&2
     exit 1
 fi
+launchctl load "$PLIST_DEST"
+
+for _ in $(seq 1 15); do
+    if curl -fsS http://127.0.0.1:8787/health >/dev/null 2>&1; then
+        echo "vertex-proxy is running"
+        echo "  plist: $PLIST_DEST"
+        echo "  logs:  $HOME/Library/Logs/vertex-proxy.log"
+        echo "  stop:  launchctl unload $PLIST_DEST"
+        exit 0
+    fi
+    sleep 1
+done
+echo "warning: vertex-proxy was loaded but /health did not answer; see $HOME/Library/Logs/vertex-proxy.err" >&2
+exit 1

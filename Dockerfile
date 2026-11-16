@@ -15,7 +15,7 @@ RUN uv sync --locked --no-editable
 
 FROM python:3.15-slim
 
-RUN useradd --system --uid 1000 --no-create-home --home-dir /app vertex \
+RUN useradd --uid 1000 --no-create-home --home-dir /app --shell /usr/sbin/nologin vertex \
     && mkdir -p /app && chown vertex:vertex /app
 
 COPY --from=builder /opt/venv /opt/venv

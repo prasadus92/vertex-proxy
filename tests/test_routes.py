@@ -166,6 +166,16 @@ def test_gemini_generate_content(client: TestClient, vertex: FakeVertex) -> None
     )
 
 
+def test_gemini_v1_path_used_by_google_genai(client: TestClient, vertex: FakeVertex) -> None:
+    r = client.post("/gemini/v1/models/gemini-3.5-flash:generateContent", json={"contents": []})
+    assert r.status_code == 200
+    assert (
+        str(vertex.last.url)
+        == f"{GLOBAL}/publishers/google/models/gemini-3.5-flash:generateContent"
+    )
+    assert client.get("/gemini/v1/models/gemini-3.5-flash").status_code == 200
+
+
 def test_gemini_streaming_keeps_alt_sse(client: TestClient, vertex: FakeVertex) -> None:
     vertex.respond_sse(['data: {"candidates":[]}'])
     r = client.post("/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse", json={})
