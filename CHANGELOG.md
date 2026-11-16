@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-16
+
 ### Added
 - OpenAI Responses API at `POST /v1/responses` (also `/responses` and under `/openai`), so Codex can use any model the proxy serves. Requests are translated to Chat Completions and go through the same routing as `/v1/chat/completions`, streaming included.
   - Function tools, MCP namespace tools and custom tools are translated, and tool calls come back as `function_call` or `custom_tool_call` items with their namespace.
@@ -17,12 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - History items with no Chat Completions form are left out. Messages from other agents (`agent_message`) become user turns, and system and developer messages are merged into 1 leading system message, which some open-model chat templates require.
   - `previous_response_id` is rejected with a 400, because the proxy stores nothing.
   - A `content_filter` stop is reported as `incomplete`.
+  - Tested end to end with the Codex CLI 0.155.1 against a scripted fake Vertex AI upstream, on Claude and Gemini models. Not yet run against live Vertex AI.
 - `examples/codex-config.toml`.
 
 ### Changed
-- The OpenAI-to-Claude bridge defaults `max_tokens` to 32000 when the client sends none. Claude 4.5 and later allow at least 64000, and agent turns often write whole files.
-- Requests to Claude through the OpenAI routes are counted in metrics under `anthropic-vertex` instead of `openai-anthropic`.
-- Chat Completions routing moved out of the route module into `vertex_proxy/chat.py`, so the Chat Completions and Responses routes share it.
+- The OpenAI-to-Claude bridge defaults `max_tokens` to 32000, up from 8192, when the client sends none. Claude 4.5 and later allow at least 64000, and agent turns often write whole files.
+- Requests to Claude through the OpenAI routes are counted in metrics under `anthropic-vertex` instead of `openai-anthropic`. Update any dashboards or alerts that filter on the old label.
 
 ## [0.5.0] - 2026-11-16
 
