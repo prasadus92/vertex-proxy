@@ -2,21 +2,14 @@
 
 from __future__ import annotations
 
-import uuid
-from collections.abc import AsyncIterator
 from typing import Any
 
-import httpx2
 from fastapi import Depends, Request
 from fastapi.responses import JSONResponse, Response
 
+from ..bridge import StreamTranslator, anthropic_to_openai, openai_to_anthropic
 from ..catalog import ChatRoute, Provider
 from ..errors import Dialect, ProxyError, UpstreamContext
-from ..openai_anthropic_bridge import (
-    anthropic_stream_to_openai_stream,
-    anthropic_to_openai_response,
-    openai_to_anthropic_body,
-)
 from ..upstream import relay_stream
 from .anthropic import ANTHROPIC_VERSION
 from .common import (
@@ -91,7 +84,7 @@ def _openai_target(services: Services, route: ChatRoute) -> tuple[str, UpstreamC
 async def _via_anthropic(
     services: Services, body: dict[str, Any], requested: str, vertex_model: str, stream: bool
 ) -> Response:
-    payload = openai_to_anthropic_body(body)
+    payload = openai_to_anthropic(body)
     payload["anthropic_version"] = ANTHROPIC_VERSION
     location = services.settings.anthropic_region
     url = services.endpoints.anthropic(location, vertex_model, stream=stream)
@@ -101,19 +94,15 @@ async def _via_anthropic(
         if stream:
             response = await services.upstream.open_stream(url, json=payload, context=context)
             metrics.record("openai-anthropic", requested, response.status_code)
-            return relay_stream(response, Dialect.OPENAI, _translate_stream(response, requested))
+            include_usage = bool((body.get("stream_options") or {}).get("include_usage"))
+            translator = StreamTranslator(requested, include_usage=include_usage)
+            return relay_stream(
+                response, Dialect.OPENAI, translator.translate(response.aiter_lines())
+            )
         response = await services.upstream.post(url, json=payload, context=context)
-    result = anthropic_to_openai_response(json_body(response.content), requested)
+    result = anthropic_to_openai(json_body(response.content), requested)
     usage = result["usage"]
     metrics.record(
         "openai-anthropic", requested, 200, usage["prompt_tokens"], usage["completion_tokens"]
     )
     return JSONResponse(result)
-
-
-async def _translate_stream(response: httpx2.Response, model: str) -> AsyncIterator[bytes]:
-    stream_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
-    async for line in response.aiter_lines():
-        translated = anthropic_stream_to_openai_stream(line.encode(), model, stream_id)
-        if translated:
-            yield translated

@@ -40,6 +40,10 @@ class ErrorKind(Enum):
         return self.value[1]
 
     @classmethod
+    def for_api_type(cls, api_type: str | None) -> ErrorKind:
+        return next((kind for kind in cls if kind.api_type == api_type), cls.UPSTREAM)
+
+    @classmethod
     def for_status(cls, status: int) -> ErrorKind:
         return _KIND_BY_STATUS.get(status) or (
             cls.UPSTREAM if status >= 500 else cls.INVALID_REQUEST
