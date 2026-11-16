@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "vertex-proxy"
 dynamic = ["version"]
-description = "Local proxy that lets Anthropic, Gemini and OpenAI API clients, such as Claude Code, use Google Cloud Vertex AI."
+description = "Local proxy that lets Anthropic, Gemini and OpenAI API clients, such as Claude Code and Codex, use Google Cloud Vertex AI."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -16,6 +16,7 @@ keywords = [
     "anthropic",
     "claude",
     "claude-code",
+    "codex",
     "gemini",
     "openai",
     "vertex-ai",

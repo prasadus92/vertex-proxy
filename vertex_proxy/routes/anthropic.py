@@ -7,10 +7,9 @@ from typing import Any
 from fastapi import Depends, Request
 from fastapi.responses import Response
 
+from ..chat import ANTHROPIC_VERSION
 from ..errors import Dialect, ProxyError, UpstreamContext
 from .common import Services, dialect_router, forward_json, get_services, read_json, require_model
-
-ANTHROPIC_VERSION = "vertex-2023-10-16"
 
 # Vertex rejects these. Claude Code sends context_management alongside a beta header the
 # proxy does not forward.

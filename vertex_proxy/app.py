@@ -17,7 +17,7 @@ from .config import ConfigError, Settings, load_settings
 from .errors import Dialect, ProxyError
 from .metrics import Metrics
 from .routes import ROUTERS
-from .routes.common import Services
+from .services import Services
 from .upstream import DEFAULT_TIMEOUT, Upstream
 from .vertex import VertexEndpoints
 

@@ -15,7 +15,6 @@ from ..errors import Dialect, ErrorKind, ProxyError, UpstreamContext
 from ..upstream import relay_stream
 from .common import (
     Services,
-    counting_failures,
     dialect_router,
     forwarded_query,
     get_services,
@@ -58,7 +57,7 @@ async def passthrough(
     upstream, metrics = services.upstream, services.metrics
     stream = method.startswith("stream") or "alt=sse" in query
     dialect = Dialect.ANTHROPIC if match["publisher"] == "anthropic" else Dialect.GOOGLE
-    with counting_failures(metrics, "vertex", model):
+    with metrics.counting_failures("vertex", model):
         if stream:
             response = await upstream.open_stream(
                 url, content=content, headers=headers, context=context

@@ -1,6 +1,6 @@
 # vertex-proxy
 
-A FastAPI proxy that lets Anthropic Messages, Gemini generateContent and OpenAI Chat Completions clients use Google Cloud Vertex AI. It holds the Google credential, refreshes the token, and translates requests. `AGENTS.md` is a symlink to this file.
+A FastAPI proxy that lets Anthropic Messages, Gemini generateContent, OpenAI Chat Completions and OpenAI Responses clients use Google Cloud Vertex AI. It holds the Google credential, refreshes the token, and translates requests. `AGENTS.md` is a symlink to this file.
 
 ## Commands
 
@@ -21,6 +21,7 @@ After changing dependencies, run `uv lock` and commit `uv.lock`. CI uses `uv syn
 - `catalog.py` holds the built-in model lists and name resolution. `vertex.py` builds Vertex URLs per location (`global`, `us`/`eu`, or a region).
 - `errors.py` classifies upstream failures and adds hints. `upstream.py` makes authenticated calls and relays streams.
 - `bridge/` translates OpenAI Chat Completions to Anthropic Messages and back, streaming included.
+- `chat.py` routes a Chat Completions request to Claude, Gemini, MaaS or Ollama. `responses/` translates the Responses API to Chat Completions and back, which is how Codex is served.
 
 ## Rules
 

@@ -1,0 +1,12 @@
+# Codex CLI on Vertex AI through vertex-proxy. Merge into ~/.codex/config.toml.
+# Any model the proxy serves works: claude-*, gemini-*, or a Vertex MaaS publisher/model name.
+
+model = "claude-opus-5-5"
+model_provider = "vertex"
+
+[model_providers.vertex]
+name = "Vertex AI"
+base_url = "http://127.0.0.1:8787/v1"
+wire_api = "responses"
+# When the proxy requires VERTEX_PROXY_API_KEY, export it and uncomment:
+# env_key = "VERTEX_PROXY_API_KEY"

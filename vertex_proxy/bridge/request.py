@@ -8,7 +8,8 @@ from typing import Any
 
 from ..errors import ProxyError
 
-DEFAULT_MAX_TOKENS = 8192
+# Claude 4.5 and later allow at least 64k output tokens; agent turns write whole files.
+DEFAULT_MAX_TOKENS = 32000
 MAX_TEMPERATURE = 1.0
 
 _DATA_URL = re.compile(r"^data:(?P<media_type>[\w/+.-]+);base64,(?P<data>.+)$", re.DOTALL)

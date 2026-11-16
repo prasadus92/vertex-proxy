@@ -64,7 +64,7 @@ def test_parameters_are_mapped() -> None:
 
 
 def test_max_tokens_has_a_default() -> None:
-    assert openai_to_anthropic({"messages": []})["max_tokens"] == 8192
+    assert openai_to_anthropic({"messages": []})["max_tokens"] == 32000
 
 
 def test_top_p_is_kept_without_temperature() -> None:
