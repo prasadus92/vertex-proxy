@@ -1,0 +1,25 @@
+# vertex-proxy config file. Default location: ~/.config/vertex-proxy/config.toml
+# (or $XDG_CONFIG_HOME/vertex-proxy/config.toml). Point elsewhere with --config or
+# $VERTEX_PROXY_CONFIG. Environment variables and CLI flags override these values.
+
+credentials_path = "~/.config/gcloud/vertex-proxy-key.json"
+project_id = "my-gcp-project"
+
+anthropic_region = "global"
+gemini_region = "global"
+maas_region = "global"
+
+port = 8787
+# api_key = "change-me"
+# metrics_enabled = true
+
+# Extra model names, merged over the built-in catalog.
+[anthropic_model_aliases]
+"claude-fast" = "claude-haiku-5-5"
+
+[maas_model_aliases]
+"deepseek" = "deepseek-ai/deepseek-v4.1-flash-maas"
+
+# Local models served by Ollama. "*" lists every model on that server.
+[ollama_backends]
+# "*" = "http://localhost:11434"

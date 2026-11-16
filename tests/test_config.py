@@ -1,101 +1,111 @@
-"""Unit tests for configuration + model alias resolution."""
-
 from __future__ import annotations
 
-import re
+from pathlib import Path
 
-from vertex_proxy.config import Settings
+import pytest
 
-
-def test_defaults() -> None:
-    s = Settings()
-    assert s.host == "127.0.0.1"
-    assert s.port == 8787
-    assert s.anthropic_region == "us-east5"
-    assert s.gemini_region == "us-central1"
-    assert s.token_refresh_seconds == 3000
+from vertex_proxy.config import ConfigError, Settings, load_settings
+from vertex_proxy.vertex import VertexEndpoints, vertex_host
 
 
-def test_anthropic_aliases_include_sonnet() -> None:
-    s = Settings()
-    assert "claude-sonnet-4-5-20250929" in s.anthropic_model_aliases
-    assert s.anthropic_model_aliases["claude-sonnet-4-5-20250929"] == "claude-sonnet-4-5@20250929"
+def test_defaults_use_the_global_endpoint() -> None:
+    s = Settings(_env_file=None)
+    assert (s.anthropic_region, s.gemini_region, s.maas_region) == ("global", "global", "global")
+    assert (s.host, s.port, s.api_key) == ("127.0.0.1", 8787, None)
 
 
-# Vertex uses two ID conventions, split at the Claude 4.6 generation:
-#   * 4.6-gen and later (Opus 4.6/4.7/4.8, Sonnet 4.6) use a DATELESS bare ID;
-#     appending '@<date>' makes the Vertex call 404.
-#   * pre-4.6 (Sonnet 4.5/4, Opus 4.5, Haiku 4.5) carry a snapshot date that
-#     Vertex separates with '@', e.g. claude-haiku-4-5@20251001.
-_DATELESS_46_GEN = {
-    "claude-opus-4-8",
-    "claude-opus-4-7",
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-}
+def test_environment_overrides_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VERTEX_PROXY_ANTHROPIC_REGION", "us-east5")
+    monkeypatch.setenv("VERTEX_PROXY_PORT", "9000")
+    s = load_settings()
+    assert (s.anthropic_region, s.port) == ("us-east5", 9000)
 
 
-def test_anthropic_46_gen_aliases_are_dateless() -> None:
-    """4.6-generation Vertex IDs are bare (no '@', no date); a suffix 404s."""
-    s = Settings()
-    for model in _DATELESS_46_GEN:
-        vertex_id = s.anthropic_model_aliases[model]
-        assert vertex_id == model, f"4.6-gen alias {model!r} must map to bare id, got {vertex_id!r}"
-        assert "@" not in vertex_id, (
-            f"4.6-gen alias {model!r} must NOT carry '@', got {vertex_id!r}"
-        )
+def _write(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
 
 
-def test_anthropic_pre_46_aliases_use_at_sign_date() -> None:
-    """Pre-4.6 Vertex IDs separate the snapshot date with '@', never '-'."""
-    s = Settings()
-    for alias, vertex_id in s.anthropic_model_aliases.items():
-        if vertex_id in _DATELESS_46_GEN:
-            continue
-        assert "@" in vertex_id, f"pre-4.6 alias {alias!r} → {vertex_id!r} missing '@' date sep"
-        # The eight digits after '@' must be the snapshot date.
-        head, _, date = vertex_id.partition("@")
-        assert date.isdigit() and len(date) == 8, f"{alias!r} → {vertex_id!r} bad date segment"
-        # The head (model name) must NOT carry a '-YYYYMMDD' dash-date; on Vertex
-        # the date is always '@'-separated, never '-' (that is the Claude-API form).
-        assert not re.search(r"-\d{8}$", head), f"{alias!r} has a '-' date in {vertex_id!r}"
+def test_toml_file_is_read(tmp_path: Path) -> None:
+    config = _write(
+        tmp_path / "config.toml",
+        'project_id = "from-file"\nanthropic_region = "us"\n'
+        '[anthropic_model_aliases]\nfast = "claude-haiku-5-5"\n',
+    )
+    s = load_settings(config)
+    assert s.project_id == "from-file"
+    assert s.anthropic_region == "us"
+    assert s.anthropic_model_aliases == {"fast": "claude-haiku-5-5"}
 
 
-def test_opus_45_and_haiku_45_use_correct_snapshot_dates() -> None:
-    """Opus 4.5 = @20251101 and Haiku 4.5 = @20251001 on Vertex (not @20250929)."""
-    s = Settings()
-    assert s.anthropic_model_aliases["claude-opus-4-5"] == "claude-opus-4-5@20251101"
-    assert s.anthropic_model_aliases["claude-haiku-4-5"] == "claude-haiku-4-5@20251001"
+def test_precedence_is_cli_then_env_then_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _write(tmp_path / "c.toml", 'project_id = "file"\nport = 1111\nhost = "0.0.0.0"\n')
+    monkeypatch.setenv("VERTEX_PROXY_PORT", "2222")
+    monkeypatch.setenv("VERTEX_PROXY_PROJECT_ID", "env")
+    s = load_settings(config, project_id="cli", host=None)
+    assert (s.project_id, s.port, s.host) == ("cli", 2222, "0.0.0.0")
 
 
-def test_gemini_aliases_include_pro_and_flash() -> None:
-    s = Settings()
-    assert "gemini-2.5-pro" in s.gemini_model_aliases
-    assert "gemini-2.5-flash" in s.gemini_model_aliases
+def test_config_path_from_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = _write(tmp_path / "env.toml", 'project_id = "env-file"\n')
+    monkeypatch.setenv("VERTEX_PROXY_CONFIG", str(config))
+    assert load_settings().project_id == "env-file"
 
 
-def test_maas_aliases_have_publisher_path_shape() -> None:
-    """MaaS aliases must follow 'publishers/{vendor}/models/{id}' shape."""
-    s = Settings()
-    for alias, path in s.maas_model_aliases.items():
-        parts = path.split("/")
-        assert len(parts) == 4, f"maas alias {alias!r} → {path!r} not 4 segments"
-        assert parts[0] == "publishers", f"maas alias {alias!r} must start with 'publishers/'"
-        assert parts[2] == "models", f"maas alias {alias!r} must have 'models/' segment"
+def test_default_config_path_is_used_when_present(tmp_path: Path) -> None:
+    _write(tmp_path / "xdg" / "vertex-proxy" / "config.toml", 'project_id = "xdg"\n')
+    assert load_settings().project_id == "xdg"
 
 
-def test_known_maas_vendors_present() -> None:
-    """Spot-check that each known vendor has at least one model."""
-    s = Settings()
-    vendors_seen = {path.split("/")[1] for path in s.maas_model_aliases.values()}
-    expected = {"moonshotai", "zhipu", "minimax", "qwen", "xai"}
-    missing = expected - vendors_seen
-    assert not missing, f"missing MaaS vendor(s): {missing}"
+def test_missing_explicit_config_file_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="config file not found"):
+        load_settings(tmp_path / "nope.toml")
 
 
-def test_env_override(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setenv("VERTEX_PROXY_PORT", "9999")
-    monkeypatch.setenv("VERTEX_PROXY_ANTHROPIC_REGION", "europe-west4")
-    s = Settings()
-    assert s.port == 9999
-    assert s.anthropic_region == "europe-west4"
+def test_invalid_config_names_the_file(tmp_path: Path) -> None:
+    config = _write(tmp_path / "bad.toml", 'port = "not-a-port"\n')
+    with pytest.raises(ConfigError, match="bad.toml"):
+        load_settings(config)
+
+
+def test_credentials_path_expands_home() -> None:
+    s = Settings(_env_file=None, credentials_path="~/key.json")
+    assert s.credentials_path == Path.home() / "key.json"
+
+
+@pytest.mark.parametrize(
+    ("location", "host"),
+    [
+        ("global", "aiplatform.googleapis.com"),
+        ("us", "aiplatform.us.rep.googleapis.com"),
+        ("eu", "aiplatform.eu.rep.googleapis.com"),
+        ("us-east5", "us-east5-aiplatform.googleapis.com"),
+    ],
+)
+def test_vertex_host_per_location(location: str, host: str) -> None:
+    assert vertex_host(location) == host
+
+
+def test_endpoint_urls() -> None:
+    e = VertexEndpoints("p")
+    assert e.anthropic("global", "claude-opus-5-5", stream=True) == (
+        "https://aiplatform.googleapis.com/v1/projects/p/locations/global"
+        "/publishers/anthropic/models/claude-opus-5-5:streamRawPredict"
+    )
+    assert e.anthropic_count_tokens("us").endswith(
+        "/locations/us/publishers/anthropic/models/count-tokens:rawPredict"
+    )
+    assert e.openai_chat("global") == (
+        "https://aiplatform.googleapis.com/v1/projects/p/locations/global"
+        "/endpoints/openapi/chat/completions"
+    )
+
+
+def test_example_config_file_is_valid() -> None:
+    example = Path(__file__).parent.parent / "examples" / "config.toml"
+    s = load_settings(example)
+    assert s.project_id == "my-gcp-project"
+    assert s.maas_model_aliases["deepseek"] == "deepseek-ai/deepseek-v4.1-flash-maas"

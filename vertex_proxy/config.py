@@ -1,14 +1,28 @@
-"""Configuration loaded from environment variables."""
+"""Runtime settings, read from CLI flags, environment, a .env file and an optional TOML file."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Any
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    TomlConfigSettingsSource,
+)
+
+CONFIG_ENV_VAR = "VERTEX_PROXY_CONFIG"
+
+
+class ConfigError(Exception):
+    """The configuration cannot be loaded or is incomplete."""
 
 
 class Settings(BaseSettings):
-    """Runtime configuration for vertex-proxy."""
+    """Runtime configuration. Precedence: CLI flags, environment, .env, TOML file, defaults."""
 
     model_config = SettingsConfigDict(
         env_prefix="VERTEX_PROXY_",
@@ -17,103 +31,87 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # --- GCP ---
-    # Path to service-account JSON. Uses GOOGLE_APPLICATION_CREDENTIALS if unset.
     credentials_path: Path | None = None
     project_id: str | None = None
-    # Region for Claude (Anthropic) models. us-east5 is the primary serving region.
-    anthropic_region: str = "us-east5"
-    # Region for Gemini models. us-central1 has the widest coverage.
-    gemini_region: str = "us-central1"
 
-    # --- Server ---
+    # Claude 4.7 and later are served only from the global and multi-region (us, eu) endpoints.
+    anthropic_region: str = "global"
+    gemini_region: str = "global"
+    maas_region: str = "global"
+
     host: str = "127.0.0.1"
     port: int = 8787
     log_level: str = "info"
 
-    # Optional bearer-token auth on the proxy itself. When set, every request
-    # must include `Authorization: Bearer <this value>`. Leave unset for
-    # localhost-only deploys (the default). Set it if you expose the proxy on
-    # a LAN or reverse-proxy it to the internet.
     api_key: str | None = None
-
-    # Prometheus-format metrics endpoint. Adds request counters + token
-    # counters by model and provider. Off by default to keep the footprint
-    # minimal; enable by setting VERTEX_PROXY_METRICS_ENABLED=true.
     metrics_enabled: bool = False
 
-    # --- Auth refresh ---
-    # Access tokens live 60 minutes. Refresh at this interval to stay ahead.
-    token_refresh_seconds: int = 3000  # 50 minutes
+    # Access tokens live 60 minutes.
+    token_refresh_seconds: int = 3000
 
-    # --- Model aliases ---
-    # Map canonical Anthropic model names → Vertex publisher model IDs.
-    # Keep this list explicit; we want to know exactly what we're routing.
-    # Hermes/Claude-Code typically request `claude-sonnet-4-5-20250929`; Vertex
-    # uses `claude-sonnet-4-5@20250929`. The proxy translates.
-    anthropic_model_aliases: dict[str, str] = {
-        # Opus 4.8 (dateless 4.6-gen ID; bare id IS the pinned snapshot)
-        "claude-opus-4-8": "claude-opus-4-8",
-        # Opus 4.7 (dateless)
-        "claude-opus-4-7": "claude-opus-4-7",
-        # Opus 4.6 (dateless; do NOT append @date or it 404s)
-        "claude-opus-4-6": "claude-opus-4-6",
-        # Sonnet 4.6 (dateless)
-        "claude-sonnet-4-6": "claude-sonnet-4-6",
-        # Sonnet 4.5 (pre-4.6 -> Vertex uses '@' before the date)
-        "claude-sonnet-4-5": "claude-sonnet-4-5@20250929",
-        "claude-sonnet-4-5-20250929": "claude-sonnet-4-5@20250929",
-        # Opus 4.5 (pre-4.6 -> Vertex ID is @20251101, NOT @20250929)
-        "claude-opus-4-5": "claude-opus-4-5@20251101",
-        "claude-opus-4-5-20251101": "claude-opus-4-5@20251101",
-        # Haiku 4.5 (pre-4.6 -> Vertex ID is @20251001, NOT @20250929)
-        "claude-haiku-4-5": "claude-haiku-4-5@20251001",
-        "claude-haiku-4-5-20251001": "claude-haiku-4-5@20251001",
-    }
+    # Merged over the built-in catalog in vertex_proxy.catalog, so these add or override entries.
+    anthropic_model_aliases: dict[str, str] = {}
+    gemini_model_aliases: dict[str, str] = {}
+    maas_model_aliases: dict[str, str] = {}
 
-    # Map canonical Gemini model names → Vertex publisher model IDs.
-    gemini_model_aliases: dict[str, str] = {
-        "gemini-2.5-pro": "gemini-2.5-pro",
-        "gemini-2.5-flash": "gemini-2.5-flash",
-        "gemini-2.0-flash": "gemini-2.0-flash-001",
-    }
-
-    # --- Ollama backends ---
-    # Map model names to Ollama-compatible base URLs.
-    # Example: {"qwen3:30b-a3b": "http://localhost:11434"}
-    # Use "*" as a key to set a default/fallback URL; all models from that
-    # server are auto-discovered and added to the model catalog.
+    # Model name to Ollama base URL; the key "*" discovers every model on that server.
     ollama_backends: dict[str, str] = {}
 
-    # Region for Vertex MaaS (Model as a Service) open-source partner models:
-    # Kimi K2.5, GLM 5, MiniMax-M2.5, Qwen 3.5, Grok 4.20, etc.
-    # Vertex typically serves these via the global endpoint or us-central1.
-    maas_region: str = "us-central1"
+    @field_validator("credentials_path")
+    @classmethod
+    def _expand_user(cls, value: Path | None) -> Path | None:
+        return value.expanduser() if value is not None else None
 
-    # Map canonical MaaS model names → Vertex publisher/model path fragments.
-    # Path shape on Vertex MaaS is:
-    #   publishers/{PUBLISHER}/models/{MODEL_ID}
-    # We store the full path fragment so different publishers can coexist.
-    # Check each model's "How to use" tab in Model Garden for the exact shape.
-    maas_model_aliases: dict[str, str] = {
-        # Moonshot (Kimi)
-        "kimi-k2.5": "publishers/moonshotai/models/kimi-k2.5",
-        "kimi-k2": "publishers/moonshotai/models/kimi-k2",
-        # Zhipu (GLM)
-        "glm-5": "publishers/zhipu/models/glm-5",
-        "glm-5.1": "publishers/zhipu/models/glm-5.1",
-        "glm-4.6": "publishers/zhipu/models/glm-4.6",
-        # MiniMax
-        "minimax-m2.5": "publishers/minimax/models/minimax-m2.5",
-        "minimax-m1": "publishers/minimax/models/minimax-m1",
-        # Alibaba (Qwen)
-        "qwen3.5": "publishers/qwen/models/qwen3.5",
-        "qwen-3": "publishers/qwen/models/qwen-3",
-        # xAI (Grok on Vertex)
-        "grok-4.20": "publishers/xai/models/grok-4.20",
-        "grok-4.1-fast": "publishers/xai/models/grok-4.1-fast",
-    }
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            TomlConfigSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
 
-def load_settings() -> Settings:
-    return Settings()
+def default_config_path() -> Path:
+    config_home = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
+    return Path(config_home) / "vertex-proxy" / "config.toml"
+
+
+def resolve_config_path(explicit: Path | None = None) -> Path | None:
+    """Return the TOML file to read: the explicit path, then $VERTEX_PROXY_CONFIG, then the default.
+
+    An explicit or environment path must exist. The default path is optional.
+    """
+    requested = explicit or (
+        Path(os.environ[CONFIG_ENV_VAR]) if os.environ.get(CONFIG_ENV_VAR) else None
+    )
+    if requested is not None:
+        requested = requested.expanduser()
+        if not requested.is_file():
+            raise ConfigError(f"config file not found: {requested}")
+        return requested
+    fallback = default_config_path()
+    return fallback if fallback.is_file() else None
+
+
+def load_settings(config_path: Path | None = None, **overrides: Any) -> Settings:
+    """Build settings; ``overrides`` (CLI flags) win over every other source and skip None values."""
+    path = resolve_config_path(config_path)
+    settings_cls: type[Settings] = Settings
+    if path is not None:
+        settings_cls = type(
+            "FileSettings", (Settings,), {"model_config": SettingsConfigDict(toml_file=path)}
+        )
+    try:
+        return settings_cls(**{key: value for key, value in overrides.items() if value is not None})
+    except ValueError as exc:
+        source = f" in {path}" if path else ""
+        raise ConfigError(f"invalid configuration{source}: {exc}") from exc
