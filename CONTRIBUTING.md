@@ -4,17 +4,20 @@ Thanks for your interest. This is a small project maintained in spare time. Cont
 
 ## Dev setup
 
+The project uses [uv](https://docs.astral.sh/uv/) and a committed `uv.lock`.
+
 ```
 git clone https://github.com/prasadus92/vertex-proxy.git
 cd vertex-proxy
-python -m venv .venv
-.venv/bin/pip install -e '.[dev]'
+uv sync --extra dev
 ```
 
 ## Running tests
 
 ```
-.venv/bin/pytest
+uv run pytest
+uv run ruff check vertex_proxy tests
+uv run ruff format --check vertex_proxy tests
 ```
 
 Tests are pure unit / mocked; they don't hit real GCP. To smoke-test against live Vertex AI you need real credentials, so do it manually (see "Running locally against real Vertex" below); CI stays mock-only.
@@ -24,7 +27,7 @@ Tests are pure unit / mocked; they don't hit real GCP. To smoke-test against liv
 ```
 export VERTEX_PROXY_CREDENTIALS_PATH=/path/to/gcp-key.json
 export VERTEX_PROXY_PROJECT_ID=your-project
-.venv/bin/vertex-proxy
+uv run vertex-proxy
 ```
 
 Then in another terminal:

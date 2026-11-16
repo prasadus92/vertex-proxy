@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
-import httpx
+import httpx2
 from fastapi.testclient import TestClient
 
 from vertex_proxy.config import Settings
@@ -21,10 +21,10 @@ def _install_mock_http(client: TestClient) -> AsyncMock:
     mock = AsyncMock()
     mock.aclose = AsyncMock()
     mock.post = AsyncMock()
-    mock.post.return_value = httpx.Response(
+    mock.post.return_value = httpx2.Response(
         200,
         json={"id": "ok", "content": [{"type": "text", "text": "ok"}]},
-        request=httpx.Request("POST", "http://x"),
+        request=httpx2.Request("POST", "http://x"),
     )
     client.app.state.http = mock
     return mock
@@ -59,9 +59,9 @@ class _TimeoutStream:
         return None
 
     async def aiter_bytes(self):  # type: ignore[no-untyped-def]
-        raise httpx.ReadTimeout(
+        raise httpx2.ReadTimeout(
             "read timeout",
-            request=httpx.Request("POST", "http://upstream"),
+            request=httpx2.Request("POST", "http://upstream"),
         )
         yield b""
 
@@ -98,7 +98,7 @@ def _build_test_app(capture: dict[str, Any]) -> Any:
             payload = {"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
         else:
             payload = {"choices": [{"message": {"content": "ok"}}]}
-        response = httpx.Response(200, json=payload, request=httpx.Request("POST", url))
+        response = httpx2.Response(200, json=payload, request=httpx2.Request("POST", url))
         return response
 
     # The mock client is installed via lifespan; we patch after TestClient starts.
@@ -151,10 +151,10 @@ def test_anthropic_model_alias_resolution() -> None:
     app, _ = _build_test_app(captured)
     with TestClient(app) as client:
         mock_http = _install_mock_http(client)
-        mock_http.post.return_value = httpx.Response(
+        mock_http.post.return_value = httpx2.Response(
             200,
             json={"id": "msg_test", "content": [{"type": "text", "text": "ok"}]},
-            request=httpx.Request("POST", "http://x"),
+            request=httpx2.Request("POST", "http://x"),
         )
 
         r = client.post(
@@ -184,10 +184,10 @@ def test_anthropic_strips_context_management() -> None:
     app, _ = _build_test_app({})
     with TestClient(app) as client:
         mock_http = _install_mock_http(client)
-        mock_http.post.return_value = httpx.Response(
+        mock_http.post.return_value = httpx2.Response(
             200,
             json={"id": "msg_test", "content": [{"type": "text", "text": "ok"}]},
-            request=httpx.Request("POST", "http://x"),
+            request=httpx2.Request("POST", "http://x"),
         )
 
         r = client.post(
@@ -213,10 +213,10 @@ def test_gemini_path_forwarding() -> None:
     app, _ = _build_test_app(captured)
     with TestClient(app) as client:
         mock_http = _install_mock_http(client)
-        mock_http.post.return_value = httpx.Response(
+        mock_http.post.return_value = httpx2.Response(
             200,
             json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]},
-            request=httpx.Request("POST", "http://x"),
+            request=httpx2.Request("POST", "http://x"),
         )
 
         r = client.post(
@@ -255,10 +255,10 @@ def test_openai_route_variants_all_accepted() -> None:
     app, _ = _build_test_app(captured)
     with TestClient(app) as client:
         mock_http = _install_mock_http(client)
-        mock_http.post.return_value = httpx.Response(
+        mock_http.post.return_value = httpx2.Response(
             200,
             json={"choices": [{"message": {"content": "ok"}}]},
-            request=httpx.Request("POST", "http://x"),
+            request=httpx2.Request("POST", "http://x"),
         )
         for path in ["/v1/chat/completions", "/chat/completions", "/openai/v1/chat/completions"]:
             r = client.post(
@@ -275,10 +275,10 @@ def test_openai_gemini_routes_via_openai_compat_endpoint() -> None:
     app, _ = _build_test_app(captured)
     with TestClient(app) as client:
         mock_http = _install_mock_http(client)
-        mock_http.post.return_value = httpx.Response(
+        mock_http.post.return_value = httpx2.Response(
             200,
             json={"choices": [{"message": {"content": "ok"}}]},
-            request=httpx.Request("POST", "http://x"),
+            request=httpx2.Request("POST", "http://x"),
         )
         r = client.post(
             "/openai/v1/chat/completions",
@@ -301,10 +301,10 @@ def test_gemini_prefix_accepts_openai_chat_shape() -> None:
     app, _ = _build_test_app(captured)
     with TestClient(app) as client:
         mock_http = _install_mock_http(client)
-        mock_http.post.return_value = httpx.Response(
+        mock_http.post.return_value = httpx2.Response(
             200,
             json={"choices": [{"message": {"content": "ok"}}]},
-            request=httpx.Request("POST", "http://x"),
+            request=httpx2.Request("POST", "http://x"),
         )
         for path in [
             "/gemini/chat/completions",
@@ -433,10 +433,10 @@ def test_ollama_does_not_shadow_a_vertex_alias() -> None:
     app, _ = _build_test_app(captured)
     with TestClient(app) as client:
         mock_http = _install_mock_http(client)
-        mock_http.post.return_value = httpx.Response(
+        mock_http.post.return_value = httpx2.Response(
             200,
             json={"choices": [{"message": {"content": "ok"}}]},
-            request=httpx.Request("POST", "http://x"),
+            request=httpx2.Request("POST", "http://x"),
         )
         main_mod._OLLAMA_MODELS["gemini-2.5-flash"] = "http://fake-ollama:11434"
         try:
@@ -460,10 +460,10 @@ def test_ollama_routes_when_no_vertex_alias_matches() -> None:
     app, _ = _build_test_app({})
     with TestClient(app) as client:
         mock_http = _install_mock_http(client)
-        mock_http.post.return_value = httpx.Response(
+        mock_http.post.return_value = httpx2.Response(
             200,
             json={"choices": [{"message": {"content": "ok"}}]},
-            request=httpx.Request("POST", "http://x"),
+            request=httpx2.Request("POST", "http://x"),
         )
         main_mod._OLLAMA_MODELS["llama3.3:70b"] = "http://fake-ollama:11434"
         try:
