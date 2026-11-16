@@ -74,12 +74,17 @@ mkdir -p "$HOME/Library/LaunchAgents"
 launchctl unload "$PLIST_DEST" 2>/dev/null || true
 cp "$PLIST_TEMPLATE" "$PLIST_DEST"
 plutil -replace Label -string "$LABEL" "$PLIST_DEST"
-plutil -replace ProgramArguments.0 -string "$BIN" "$PLIST_DEST"
+plutil -replace ProgramArguments -array "$PLIST_DEST"
+plutil -insert ProgramArguments -string "$BIN" -append "$PLIST_DEST"
 plutil -replace EnvironmentVariables.VERTEX_PROXY_CREDENTIALS_PATH -string "$CREDENTIALS_PATH" "$PLIST_DEST"
 plutil -replace EnvironmentVariables.VERTEX_PROXY_PROJECT_ID -string "$PROJECT_ID" "$PLIST_DEST"
 plutil -replace StandardOutPath -string "$HOME/Library/Logs/vertex-proxy.log" "$PLIST_DEST"
 plutil -replace StandardErrorPath -string "$HOME/Library/Logs/vertex-proxy.err" "$PLIST_DEST"
 plutil -lint -s "$PLIST_DEST"
+if grep -q '{{' "$PLIST_DEST"; then
+    echo "error: $PLIST_DEST still has template placeholders" >&2
+    exit 1
+fi
 launchctl load "$PLIST_DEST"
 
 for _ in $(seq 1 15); do
