@@ -18,9 +18,9 @@ FINISH_REASONS = {
 
 
 def finish_reason(stop_reason: str | None, has_tool_calls: bool) -> str:
-    if has_tool_calls:
-        return "tool_calls"
-    return FINISH_REASONS.get(stop_reason or "end_turn", "stop")
+    """OpenAI finish_reason; tool calls win unless the output was cut off mid-call."""
+    mapped = FINISH_REASONS.get(stop_reason or "end_turn", "stop")
+    return "tool_calls" if has_tool_calls and mapped != "length" else mapped
 
 
 def openai_usage(usage: dict[str, Any]) -> dict[str, Any]:

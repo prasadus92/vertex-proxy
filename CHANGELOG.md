@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The proxy API key is accepted as `Authorization: Bearer`, `x-api-key` or `x-goog-api-key`, so Anthropic and Gemini SDKs can send it.
 - Any `claude-*` model name now works without a catalog entry, and `-YYYYMMDD` suffixes are rewritten to Vertex's `@YYYYMMDD` form. Any `publisher/model` name is sent to the Vertex MaaS endpoint.
 - `--version`, and the version in `/health`.
+- OpenAI-to-Claude bridge parity:
+  - `tools` and `tool_choice` (including `required`, a named function and `parallel_tool_calls: false`) are translated. Before, tools were dropped, so Claude never saw them.
+  - Streamed tool calls arrive as OpenAI `tool_calls` deltas.
+  - `stream_options.include_usage` adds a final usage chunk.
+  - The first chunk carries `role: assistant`.
+  - Stream `error` events are forwarded.
+- OpenAI image inputs (`image_url` with a data URL or an https URL) become Claude image blocks. The `developer` role is treated as a system message.
+- The results of parallel tool calls are merged into 1 Claude user turn.
+- Cached input tokens count toward `prompt_tokens`, and are also reported as `prompt_tokens_details.cached_tokens`.
 
 ### Changed
 - Supports Python 3.11 to 3.15, and the Docker image runs Python 3.15. Dependencies are raised to their current releases and pinned in a committed `uv.lock`.
@@ -27,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gemini and MaaS chat requests use Vertex's `v1` OpenAI-compatible endpoint with publisher-prefixed model IDs.
 - `*_model_aliases` settings now add to the built-in catalog instead of replacing it.
 - Credentials files may be user credentials or workload identity federation configs as well as service-account keys.
+- The bridge reports `finish_reason: length`, not `tool_calls`, when output stops at `max_tokens` in the middle of a tool call. Unsupported roles, content parts, tool types and `tool_choice` values return a 400 that names them. Before, they were passed on silently.
 - Upstream errors on streaming requests are returned as real HTTP errors before the stream starts, so clients retry them.
 - Split the single 880-line module into routes, catalog, errors, upstream and config modules; tests run against a fake Vertex transport.
 

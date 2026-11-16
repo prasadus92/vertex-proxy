@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import FakeVertex
 from vertex_proxy.bridge import StreamTranslator, anthropic_to_openai, openai_to_anthropic
+from vertex_proxy.bridge.response import finish_reason
 from vertex_proxy.errors import ProxyError
 
 WEATHER_TOOL = {
@@ -239,6 +240,40 @@ def test_finish_reasons(stop_reason: str, finish: str) -> None:
     assert result["choices"][0]["finish_reason"] == finish
 
 
+@pytest.mark.parametrize(
+    ("stop_reason", "finish"),
+    [("tool_use", "tool_calls"), ("end_turn", "tool_calls"), ("max_tokens", "length")],
+)
+def test_finish_reason_with_tool_calls(stop_reason: str, finish: str) -> None:
+    assert finish_reason(stop_reason, has_tool_calls=True) == finish
+
+
+async def test_streamed_tool_call_cut_off_by_max_tokens_finishes_with_length() -> None:
+    lines = _events(
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "tool_use", "id": "t", "name": "f"},
+        },
+        {"type": "message_delta", "delta": {"stop_reason": "max_tokens"}},
+    )
+    chunks = await _collect(StreamTranslator("m"), lines)
+    assert chunks[-1]["choices"][0]["finish_reason"] == "length"
+
+
+async def test_streamed_tool_call_with_end_turn_finishes_with_tool_calls() -> None:
+    lines = _events(
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "tool_use", "id": "t", "name": "f"},
+        },
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}},
+    )
+    chunks = await _collect(StreamTranslator("m"), lines)
+    assert chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
+
+
 def test_tool_only_response_has_null_content() -> None:
     result = anthropic_to_openai(
         {
@@ -382,3 +417,10 @@ def test_openai_route_streams_tool_calls_end_to_end(
     payloads = [line[6:] for line in r.text.split("\n\n") if line.startswith("data: ")]
     assert payloads[-1] == "[DONE]"
     assert any("tool_calls" in json.loads(p)["choices"][0]["delta"] for p in payloads[:-1])
+
+
+async def test_nothing_is_emitted_after_message_stop() -> None:
+    lines = _events({"type": "message_stop"}) + _events(
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "late"}}
+    )
+    assert await _collect(StreamTranslator("m"), lines) == ["[DONE]"]
