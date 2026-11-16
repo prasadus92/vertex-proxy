@@ -5,7 +5,11 @@ from __future__ import annotations
 import threading
 import time
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
+
+from .errors import ProxyError
 
 
 def usage_tokens(payload: Any) -> tuple[int, int]:
@@ -40,6 +44,15 @@ class Metrics:
             self._requests[(route, model, str(status))] += 1
             self._tokens_in[model] += prompt
             self._tokens_out[model] += completion
+
+    @contextmanager
+    def counting_failures(self, route: str, model: str) -> Iterator[None]:
+        """Record a request that fails with a ProxyError before re-raising it."""
+        try:
+            yield
+        except ProxyError as exc:
+            self.record(route, model, exc.status)
+            raise
 
     def render(self) -> str:
         """Prometheus text exposition format."""

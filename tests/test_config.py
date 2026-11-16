@@ -122,3 +122,14 @@ def test_invalid_values_are_config_errors(setting: dict[str, str]) -> None:
 
 def test_log_level_is_case_insensitive() -> None:
     assert load_settings(log_level="DEBUG").log_level == "debug"
+
+
+def test_example_codex_config_points_at_the_responses_route() -> None:
+    import tomllib
+
+    example = Path(__file__).parent.parent / "examples" / "codex-config.toml"
+    config = tomllib.loads(example.read_text())
+    provider = config["model_providers"][config["model_provider"]]
+    assert provider["wire_api"] == "responses"
+    assert provider["base_url"].endswith("/v1")
+    assert provider["name"] != "OpenAI"

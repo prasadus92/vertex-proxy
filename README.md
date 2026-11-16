@@ -5,7 +5,7 @@
 [![Python 3.11 to 3.15](https://img.shields.io/badge/python-3.11%20to%203.15-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-vertex-proxy is a local proxy that lets tools built for the Anthropic, Gemini or OpenAI APIs run on Google Cloud Vertex AI. Claude Code, the official SDKs and OpenAI-compatible agent frameworks work against it without code changes.
+vertex-proxy is a local proxy that lets tools built for the Anthropic, Gemini or OpenAI APIs run on Google Cloud Vertex AI. Claude Code, Codex, the official SDKs and OpenAI-compatible agent frameworks work against it without code changes.
 
 Vertex AI authenticates with short-lived OAuth tokens from a Google Cloud credential. Most clients expect a static API key and a public API's request shape. The proxy holds the credential, refreshes the token in the background, and translates requests to Vertex's endpoints.
 
@@ -113,7 +113,29 @@ Agent frameworks and coding tools such as opencode, Cline, Continue and Hermes A
 
 ### Codex
 
-Current Codex releases use only the OpenAI Responses API with custom providers. vertex-proxy serves Chat Completions, so Codex cannot use it yet.
+Codex talks to custom providers through the OpenAI Responses API, which the proxy serves at `/v1/responses` for every model it knows. Add a provider to `~/.codex/config.toml`:
+
+```toml
+model = "claude-opus-5-5"
+model_provider = "vertex"
+
+[model_providers.vertex]
+name = "Vertex AI"
+base_url = "http://127.0.0.1:8787/v1"
+wire_api = "responses"
+```
+
+Or try it without editing the file:
+
+```bash
+codex -c model_provider=vertex \
+  -c 'model_providers.vertex.name="Vertex AI"' \
+  -c 'model_providers.vertex.base_url="http://127.0.0.1:8787/v1"' \
+  -c 'model_providers.vertex.wire_api="responses"' \
+  -m gemini-3.5-flash
+```
+
+Tool calls, MCP tools and streaming work with Claude, Gemini and the open models. Codex warns that it has no metadata for the model name; that is expected for models outside OpenAI's list. Codex's built-in web search has no Vertex equivalent, so the proxy leaves it out of the request. When a reply stops at the output-token limit, the proxy reports `response.incomplete` as OpenAI does, and Codex retries that turn up to 5 times before it shows the error. [`examples/codex-config.toml`](examples/codex-config.toml) has the same settings.
 
 ### Local models with Ollama
 
@@ -134,11 +156,12 @@ export VERTEX_PROXY_OLLAMA_BACKENDS='{"*": "http://localhost:11434"}'
 | `POST /anthropic/v1/messages/count_tokens`, `/v1/messages/count_tokens` | Anthropic token counting | Vertex Claude count-tokens |
 | `POST /gemini/v1beta/models/{model}:{action}`, `/v1beta/models/...` | Gemini `generateContent`, `streamGenerateContent`, `countTokens` | Gemini on Vertex |
 | `POST /v1/chat/completions` (and mirrors) | OpenAI Chat Completions | Claude (translated), Gemini, Vertex open models, Ollama |
+| `POST /v1/responses` (and mirrors) | OpenAI Responses | The same models, through the Chat Completions routing |
 | `GET /v1/models`, `/anthropic/v1/models`, `/gemini/v1beta/models` | Model listings | |
 | `GET /health` | Liveness and a credential check | |
 | `GET /metrics` | Prometheus counters, when enabled | |
 
-The messages, generate and chat routes support streaming.
+The messages, generate, chat and responses routes support streaming.
 
 ## Models
 

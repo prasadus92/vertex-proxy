@@ -45,6 +45,8 @@ curl http://127.0.0.1:8787/v1/chat/completions \
 | `vertex_proxy/errors.py` | Upstream errors, hints and per-API error shapes |
 | `vertex_proxy/upstream.py` | Authenticated upstream calls and stream relaying |
 | `vertex_proxy/bridge/` | OpenAI Chat Completions to Anthropic Messages translation |
+| `vertex_proxy/chat.py` | Chat Completions routing shared by the OpenAI routes |
+| `vertex_proxy/responses/` | OpenAI Responses to Chat Completions translation |
 | `vertex_proxy/routes/` | 1 router per API surface |
 
 ## Adding a model

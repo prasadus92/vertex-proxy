@@ -92,14 +92,21 @@ class Upstream:
         return response
 
 
+def json_payload(response: httpx2.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise ProxyError(502, ErrorKind.UPSTREAM, "upstream returned a non-JSON response") from exc
+
+
 def relay_stream(
     response: httpx2.Response,
     dialect: Dialect,
     chunks: AsyncIterator[bytes] | None = None,
+    media_type: str | None = None,
 ) -> StreamingResponse:
     """Stream ``chunks`` (default: the raw upstream body) to the client, then close the upstream."""
-
-    media_type = response.headers.get("content-type", "text/event-stream")
+    media_type = media_type or response.headers.get("content-type", "text/event-stream")
     is_sse = media_type.startswith("text/event-stream")
 
     async def body() -> AsyncIterator[bytes]:

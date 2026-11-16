@@ -3,34 +3,20 @@
 from __future__ import annotations
 
 import hmac
-import json
 import re
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 
-from ..catalog import ModelCatalog
-from ..config import Settings
 from ..errors import Dialect, ErrorKind, ProxyError, UpstreamContext
-from ..metrics import Metrics, usage_tokens
-from ..upstream import Upstream, relay_stream
-from ..vertex import VertexEndpoints
+from ..metrics import usage_tokens
+from ..services import Services
+from ..upstream import json_payload, relay_stream
 
 _PATH_SEGMENT = re.compile(r"^[A-Za-z0-9._@-]+$")
-
-
-@dataclass(frozen=True)
-class Services:
-    settings: Settings
-    catalog: ModelCatalog
-    endpoints: VertexEndpoints
-    upstream: Upstream
-    metrics: Metrics
 
 
 def get_services(request: Request) -> Services:
@@ -115,16 +101,6 @@ def with_query(url: str, query: str) -> str:
     return f"{url}?{query}" if query else url
 
 
-@contextmanager
-def counting_failures(metrics: Metrics, route: str, model: str) -> Iterator[None]:
-    """Record a request that fails with a ProxyError before re-raising it."""
-    try:
-        yield
-    except ProxyError as exc:
-        metrics.record(route, model, exc.status)
-        raise
-
-
 async def forward_json(
     services: Services,
     url: str,
@@ -139,7 +115,7 @@ async def forward_json(
 ) -> Response:
     """POST ``payload`` upstream and return the reply, streamed or as JSON."""
     upstream, metrics = services.upstream, services.metrics
-    with counting_failures(metrics, metric_route, model):
+    with metrics.counting_failures(metric_route, model):
         if stream:
             response = await upstream.open_stream(
                 url, json=payload, context=context, authenticated=authenticated
@@ -149,13 +125,6 @@ async def forward_json(
         response = await upstream.post(
             url, json=payload, context=context, authenticated=authenticated
         )
-    data = json_body(response.content)
+    data = json_payload(response)
     metrics.record(metric_route, model, response.status_code, *usage_tokens(data))
     return JSONResponse(data, status_code=response.status_code)
-
-
-def json_body(content: bytes) -> Any:
-    try:
-        return json.loads(content)
-    except ValueError as exc:
-        raise ProxyError(502, ErrorKind.UPSTREAM, "upstream returned a non-JSON response") from exc
