@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,7 @@ def test_unreadable_credentials_file(tmp_path: Path) -> None:
 def test_unknown_credentials_type(tmp_path: Path) -> None:
     key = tmp_path / "key.json"
     key.write_text('{"type": "something_else"}')
-    with pytest.raises(CredentialsError, match="type='something_else'"):
+    with pytest.raises(CredentialsError, match="credential type 'something_else'"):
         load_credentials(key)
 
 
@@ -117,3 +118,107 @@ def test_cli_requires_a_project(
     )  # type: ignore[arg-type]
     assert cli.main([]) == 2
     assert "no Google Cloud project" in capsys.readouterr().err
+
+
+_POOL = "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/x"
+_JWT = "urn:ietf:params:oauth:token-type:jwt"
+_STS = "https://sts.googleapis.com/v1/token"
+
+
+@pytest.mark.parametrize(
+    ("info", "module"),
+    [
+        (
+            {
+                "type": "external_account",
+                "audience": _POOL,
+                "subject_token_type": _JWT,
+                "token_url": _STS,
+                "credential_source": {"file": "/var/run/token"},
+            },
+            "google.auth.identity_pool",
+        ),
+        (
+            {
+                "type": "external_account",
+                "audience": _POOL,
+                "subject_token_type": "urn:ietf:params:aws:token-type:aws4_request",
+                "token_url": _STS,
+                "credential_source": {
+                    "environment_id": "aws1",
+                    "region_url": "http://169.254.169.254/latest/meta-data/placement/availability-zone",
+                    "url": "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+                    "regional_cred_verification_url": "https://sts.{region}.amazonaws.com?Action=GetCallerIdentity&Version=2011-06-15",
+                },
+            },
+            "google.auth.aws",
+        ),
+        (
+            {
+                "type": "external_account",
+                "audience": _POOL,
+                "subject_token_type": _JWT,
+                "token_url": _STS,
+                "credential_source": {"executable": {"command": "/usr/bin/get-token"}},
+            },
+            "google.auth.pluggable",
+        ),
+        (
+            {
+                "type": "external_account_authorized_user",
+                "audience": "//iam.googleapis.com/locations/global/workforcePools/p/providers/x",
+                "refresh_token": "r",
+                "token_url": "https://sts.googleapis.com/v1/oauthtoken",
+                "token_info_url": "https://sts.googleapis.com/v1/introspect",
+                "client_id": "c",
+                "client_secret": "s",
+            },
+            "google.auth.external_account_authorized_user",
+        ),
+        (
+            {
+                "type": "impersonated_service_account",
+                "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@p.iam.gserviceaccount.com:generateAccessToken",
+                "source_credentials": {
+                    "type": "authorized_user",
+                    "client_id": "c",
+                    "client_secret": "s",
+                    "refresh_token": "r",
+                },
+            },
+            "google.auth.impersonated_credentials",
+        ),
+        (
+            {
+                "type": "authorized_user",
+                "client_id": "c",
+                "client_secret": "s",
+                "refresh_token": "r",
+            },
+            "google.oauth2.credentials",
+        ),
+    ],
+)
+def test_every_supported_credential_type_loads(
+    tmp_path: Path, info: dict[str, Any], module: str
+) -> None:
+    key = tmp_path / "creds.json"
+    key.write_text(json.dumps(info))
+    creds, _ = load_credentials(key)
+    assert type(creds).__module__ == module
+
+
+async def test_concurrent_requests_refresh_the_token_once() -> None:
+    import asyncio
+
+    class Counting(_Credentials):
+        calls = 0
+
+        def refresh(self, request: Any) -> None:
+            Counting.calls += 1
+            time.sleep(0.05)
+            super().refresh(request)
+
+    manager = TokenManager(Counting(), "p")  # type: ignore[arg-type]
+    await asyncio.gather(*(manager.get_token() for _ in range(5)))
+    assert Counting.calls == 1

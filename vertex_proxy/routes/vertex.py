@@ -13,7 +13,14 @@ from fastapi.responses import Response
 
 from ..errors import Dialect, ErrorKind, ProxyError, UpstreamContext
 from ..upstream import relay_stream
-from .common import Services, dialect_router, forwarded_query, get_services, with_query
+from .common import (
+    Services,
+    counting_failures,
+    dialect_router,
+    forwarded_query,
+    get_services,
+    with_query,
+)
 
 _PUBLISHER_MODEL_PATH = re.compile(
     r"^(?:(?P<version>v1|v1beta1)/)?projects/[^/]+/locations/(?P<location>[a-z0-9-]+)"
@@ -50,17 +57,15 @@ async def passthrough(
     content = await request.body()
     upstream, metrics = services.upstream, services.metrics
     stream = method.startswith("stream") or "alt=sse" in query
-    try:
+    dialect = Dialect.ANTHROPIC if match["publisher"] == "anthropic" else Dialect.GOOGLE
+    with counting_failures(metrics, "vertex", model):
         if stream:
             response = await upstream.open_stream(
                 url, content=content, headers=headers, context=context
             )
             metrics.record("vertex", model, response.status_code)
-            return relay_stream(response, Dialect.RAW)
+            return relay_stream(response, dialect)
         response = await upstream.post(url, content=content, headers=headers, context=context)
-    except ProxyError as exc:
-        metrics.record("vertex", model, exc.status)
-        raise
     metrics.record("vertex", model, response.status_code)
     return Response(
         response.content,

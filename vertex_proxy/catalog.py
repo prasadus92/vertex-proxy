@@ -116,13 +116,7 @@ class ModelCatalog:
         return None
 
     def knows(self, name: str) -> bool:
-        return (
-            name in self.anthropic
-            or name in self.gemini
-            or name in self.maas
-            or name in self.ollama
-            or name.startswith("google/")
-        )
+        return self.chat_route(name) is not None
 
     def entries(self, *providers: Provider) -> list[dict[str, Any]]:
         """Model listing in OpenAI shape, with Anthropic-friendly fields, for the given providers."""

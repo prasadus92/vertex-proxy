@@ -5,7 +5,8 @@ from __future__ import annotations
 import hmac
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
@@ -114,6 +115,16 @@ def with_query(url: str, query: str) -> str:
     return f"{url}?{query}" if query else url
 
 
+@contextmanager
+def counting_failures(metrics: Metrics, route: str, model: str) -> Iterator[None]:
+    """Record a request that fails with a ProxyError before re-raising it."""
+    try:
+        yield
+    except ProxyError as exc:
+        metrics.record(route, model, exc.status)
+        raise
+
+
 async def forward_json(
     services: Services,
     url: str,
@@ -128,7 +139,7 @@ async def forward_json(
 ) -> Response:
     """POST ``payload`` upstream and return the reply, streamed or as JSON."""
     upstream, metrics = services.upstream, services.metrics
-    try:
+    with counting_failures(metrics, metric_route, model):
         if stream:
             response = await upstream.open_stream(
                 url, json=payload, context=context, authenticated=authenticated
@@ -138,9 +149,6 @@ async def forward_json(
         response = await upstream.post(
             url, json=payload, context=context, authenticated=authenticated
         )
-    except ProxyError as exc:
-        metrics.record(metric_route, model, exc.status)
-        raise
     data = json_body(response.content)
     metrics.record(metric_route, model, response.status_code, *usage_tokens(data))
     return JSONResponse(data, status_code=response.status_code)

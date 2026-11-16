@@ -65,6 +65,7 @@ def build_app(
         description="Anthropic, Gemini and OpenAI API-compatible proxy for Google Cloud Vertex AI",
         version=__version__,
         lifespan=lifespan,
+        openapi_url=None,
     )
 
     @app.exception_handler(ProxyError)

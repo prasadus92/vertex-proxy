@@ -282,6 +282,7 @@ def test_vertex_passthrough_injects_credentials_and_project(
         "/publishers/anthropic/models/claude-opus-5-5:rawPredict"
     )
     assert vertex.last.headers["anthropic-beta"] == "interleaved-thinking-2025-05-14"
+    assert vertex.last.headers.get_list("content-type") == ["application/json"]
     assert vertex.last.headers["authorization"] == "Bearer fake-token"
     assert "x-api-key" not in vertex.last.headers
     assert vertex.last.content == b'{"anthropic_version":"vertex-2023-10-16","messages":[]}'
@@ -410,3 +411,75 @@ def test_api_key_in_query_is_not_forwarded(
     r = client.post("/v1beta/models/gemini-3.5-flash:generateContent?key=s3cret&alt=sse", json={})
     assert r.status_code == 200
     assert vertex.last.url.query == b"alt=sse"
+
+
+class _BrokenStream(httpx2.AsyncByteStream):
+    def __init__(self, first: bytes) -> None:
+        self.first = first
+
+    async def __aiter__(self):  # type: ignore[no-untyped-def]
+        yield self.first
+        raise httpx2.ReadError("connection reset")
+
+
+def test_passthrough_claude_stream_errors_are_anthropic_events(
+    client: TestClient, vertex: FakeVertex
+) -> None:
+    vertex.reply = lambda _r: httpx2.Response(
+        200,
+        stream=_BrokenStream(b"event: ping\ndata: {}\n\n"),
+        headers={"content-type": "text/event-stream"},
+    )
+    r = client.post(
+        "/vertex/v1/projects/p/locations/global/publishers/anthropic/models/claude-opus-5-5:streamRawPredict",
+        content=b"{}",
+    )
+    assert r.text.strip().split("\n\n")[-1].startswith("event: error\ndata: ")
+
+
+def test_json_array_streams_are_not_corrupted_by_sse_errors(
+    client: TestClient, vertex: FakeVertex
+) -> None:
+    vertex.reply = lambda _r: httpx2.Response(
+        200,
+        stream=_BrokenStream(b'[{"candidates": []}'),
+        headers={"content-type": "application/json"},
+    )
+    r = client.post("/v1beta/models/gemini-3.5-flash:streamGenerateContent", json={})
+    assert r.text == '[{"candidates": []}'
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "claude-opus-4-5-20251101",
+        "zai-org/glm-5.2-maas",
+        "gemini-9-flash",
+        "google/gemini-3.5-flash",
+    ],
+)
+def test_model_probe_agrees_with_routing(client: TestClient, model_id: str) -> None:
+    assert client.get(f"/v1/models/{model_id}").status_code == 200
+
+
+def test_ollama_errors_carry_no_vertex_hints(
+    make_client: Callable[..., TestClient], vertex: FakeVertex
+) -> None:
+    client = make_client(ollama_backends={"llama3": "http://ollama:11434"})
+    vertex.respond(404, {"error": {"message": "model 'llama3' not found"}})
+    r = client.post("/v1/chat/completions", json={"model": "llama3", "messages": []})
+    assert r.status_code == 404
+    assert r.json()["error"]["message"] == "model 'llama3' not found"
+
+
+def test_api_docs_are_not_served(client: TestClient) -> None:
+    assert client.get("/docs").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
+
+
+def test_health_hides_the_project_when_a_key_is_required(
+    make_client: Callable[..., TestClient],
+) -> None:
+    body = make_client(api_key="s3cret").get("/health").json()
+    assert body["status"] == "ok"
+    assert "project" not in body

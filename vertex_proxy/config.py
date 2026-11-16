@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import field_validator
 from pydantic_settings import (
@@ -15,6 +16,7 @@ from pydantic_settings import (
 )
 
 CONFIG_ENV_VAR = "VERTEX_PROXY_CONFIG"
+_LOCATION = re.compile(r"^[a-z0-9-]+$")
 
 
 class ConfigError(Exception):
@@ -41,7 +43,7 @@ class Settings(BaseSettings):
 
     host: str = "127.0.0.1"
     port: int = 8787
-    log_level: str = "info"
+    log_level: Literal["debug", "info", "warning", "error", "critical"] = "info"
 
     api_key: str | None = None
     metrics_enabled: bool = False
@@ -56,6 +58,18 @@ class Settings(BaseSettings):
 
     # Model name to Ollama base URL; the key "*" discovers every model on that server.
     ollama_backends: dict[str, str] = {}
+
+    @field_validator("anthropic_region", "gemini_region", "maas_region")
+    @classmethod
+    def _location_name(cls, value: str) -> str:
+        if not _LOCATION.match(value):
+            raise ValueError(f"{value!r} is not a Vertex AI location such as global or us-east5")
+        return value
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _lowercase(cls, value: Any) -> Any:
+        return value.lower() if isinstance(value, str) else value
 
     @field_validator("credentials_path")
     @classmethod

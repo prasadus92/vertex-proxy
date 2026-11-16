@@ -5,12 +5,19 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import google.auth
+from google.auth import (
+    aws,
+    external_account_authorized_user,
+    identity_pool,
+    impersonated_credentials,
+    pluggable,
+)
 from google.auth import exceptions as google_exceptions
-from google.auth import identity_pool
 from google.auth.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import credentials as user_credentials
@@ -41,26 +48,63 @@ class TokenSource(Protocol):
     async def get_token(self) -> str: ...
 
 
-def _load_file(path: Path) -> tuple[Credentials, str | None]:
+Loaded = tuple[Credentials, str | None]
+
+
+def _service_account(info: dict[str, Any]) -> Loaded:
+    creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    return creds, creds.project_id
+
+
+def _authorized_user(info: dict[str, Any]) -> Loaded:
+    return user_credentials.Credentials.from_authorized_user_info(info, scopes=SCOPES), None
+
+
+def _external_account(info: dict[str, Any]) -> Loaded:
+    source = info.get("credential_source") or {}
+    if str(source.get("environment_id", "")).startswith("aws"):
+        return aws.Credentials.from_info(info, scopes=SCOPES), None
+    if "executable" in source:
+        return pluggable.Credentials.from_info(info, scopes=SCOPES), None
+    return identity_pool.Credentials.from_info(info, scopes=SCOPES), None
+
+
+def _external_account_authorized_user(info: dict[str, Any]) -> Loaded:
+    return external_account_authorized_user.Credentials.from_info(info), None
+
+
+def _impersonated_service_account(info: dict[str, Any]) -> Loaded:
+    creds = impersonated_credentials.Credentials.from_impersonated_service_account_info(
+        info, scopes=SCOPES
+    )
+    return creds, None
+
+
+# google-auth deprecates its generic file loader, so each supported type is loaded explicitly.
+_LOADERS: dict[str, Callable[[dict[str, Any]], Loaded]] = {
+    "service_account": _service_account,
+    "authorized_user": _authorized_user,
+    "external_account": _external_account,
+    "external_account_authorized_user": _external_account_authorized_user,
+    "impersonated_service_account": _impersonated_service_account,
+}
+
+
+def _load_file(path: Path) -> Loaded:
     try:
         info = json.loads(path.read_text())
     except (OSError, ValueError) as exc:
         raise CredentialsError(f"cannot read credentials file {path}: {exc}") from exc
     kind = info.get("type") if isinstance(info, dict) else None
-    if kind == "service_account":
-        creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
-        return creds, creds.project_id
-    if kind == "authorized_user":
-        return user_credentials.Credentials.from_authorized_user_info(info, scopes=SCOPES), None
-    if kind == "external_account":
-        return identity_pool.Credentials.from_info(info, scopes=SCOPES), None
-    raise CredentialsError(
-        f"{path} is not a service-account key, user credentials or a workload identity "
-        f"federation config (type={kind!r})"
-    )
+    loader = _LOADERS.get(kind) if isinstance(kind, str) else None
+    if loader is None:
+        raise CredentialsError(
+            f"{path} has credential type {kind!r}; supported types are {', '.join(_LOADERS)}"
+        )
+    return loader(info)
 
 
-def load_credentials(path: Path | None) -> tuple[Credentials, str | None]:
+def load_credentials(path: Path | None) -> Loaded:
     """Load a credentials file, or Application Default Credentials when ``path`` is None.
 
     Makes no network call.
@@ -93,6 +137,7 @@ class TokenManager:
         self._refresh_seconds = refresh_seconds
         self._refresh_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
+        self._refresh_lock = asyncio.Lock()
 
     @classmethod
     def from_file(cls, path: Path | None, refresh_seconds: int = 3000) -> TokenManager:
@@ -123,7 +168,9 @@ class TokenManager:
 
     async def get_token(self) -> str:
         if not self._credentials.valid:
-            await self._refresh()
+            async with self._refresh_lock:
+                if not self._credentials.valid:
+                    await self._refresh()
         return self._credentials.token or ""
 
     async def _refresh(self) -> None:

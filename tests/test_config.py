@@ -109,3 +109,16 @@ def test_example_config_file_is_valid() -> None:
     s = load_settings(example)
     assert s.project_id == "my-gcp-project"
     assert s.maas_model_aliases["deepseek"] == "deepseek-ai/deepseek-v4.1-flash-maas"
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [{"anthropic_region": "us-east5.evil.com"}, {"gemini_region": "a/b"}, {"log_level": "warn"}],
+)
+def test_invalid_values_are_config_errors(setting: dict[str, str]) -> None:
+    with pytest.raises(ConfigError):
+        load_settings(**setting)
+
+
+def test_log_level_is_case_insensitive() -> None:
+    assert load_settings(log_level="DEBUG").log_level == "debug"
