@@ -8,13 +8,14 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ..errors import Dialect, ErrorKind, ProxyError
 from .response import finish_reason, openai_usage
 
 DONE = b"data: [DONE]\n\n"
 
 
 class StreamTranslator:
-    """Translates 1 Anthropic stream. Tool calls are numbered in the order their blocks start."""
+    """Translates a single Anthropic stream. Tool calls are numbered in the order their blocks start."""
 
     def __init__(self, model: str, *, include_usage: bool = False) -> None:
         self._model = model
@@ -22,6 +23,7 @@ class StreamTranslator:
         self._id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
         self._created = int(time.time())
         self._tool_index_by_block: dict[int, int] = {}
+        self._blocks_with_arguments: set[int] = set()
         self._usage: dict[str, Any] = {}
         self._finished = False
 
@@ -41,14 +43,19 @@ class StreamTranslator:
     def on_event(self, event: dict[str, Any]) -> list[bytes]:
         kind = event.get("type")
         if kind == "message_start":
-            self._usage.update(event.get("message", {}).get("usage") or {})
+            message = event.get("message") or {}
+            if message.get("id"):
+                self._id = f"chatcmpl-{message['id']}"
+            self._add_usage(message.get("usage"))
             return [self._chunk({"role": "assistant", "content": ""})]
         if kind == "content_block_start":
             return self._block_start(event.get("index", 0), event.get("content_block") or {})
         if kind == "content_block_delta":
             return self._block_delta(event.get("index", 0), event.get("delta") or {})
+        if kind == "content_block_stop":
+            return self._block_stop(event.get("index", 0))
         if kind == "message_delta":
-            self._usage.update(event.get("usage") or {})
+            self._add_usage(event.get("usage"))
             reason = finish_reason(
                 event.get("delta", {}).get("stop_reason"), bool(self._tool_index_by_block)
             )
@@ -59,8 +66,14 @@ class StreamTranslator:
             return [*usage, DONE]
         if kind == "error":
             self._finished = True
-            return [_sse({"error": event.get("error") or {}}), DONE]
+            error = event.get("error") or {}
+            kind_ = ErrorKind.for_api_type(error.get("type"))
+            message = error.get("message") or "upstream stream error"
+            return [ProxyError(502, kind_, message).to_sse(Dialect.OPENAI), DONE]
         return []
+
+    def _add_usage(self, usage: dict[str, Any] | None) -> None:
+        self._usage.update({k: v for k, v in (usage or {}).items() if v is not None})
 
     def _block_start(self, index: int, block: dict[str, Any]) -> list[bytes]:
         if block.get("type") != "tool_use":
@@ -79,12 +92,22 @@ class StreamTranslator:
         if delta.get("type") == "text_delta":
             return [self._chunk({"content": delta.get("text", "")})]
         if delta.get("type") == "input_json_delta" and index in self._tool_index_by_block:
-            call = {
-                "index": self._tool_index_by_block[index],
-                "function": {"arguments": delta.get("partial_json", "")},
-            }
-            return [self._chunk({"tool_calls": [call]})]
+            fragment = delta.get("partial_json", "")
+            if not fragment:
+                return []
+            self._blocks_with_arguments.add(index)
+            return [self._arguments_chunk(index, fragment)]
         return []
+
+    def _block_stop(self, index: int) -> list[bytes]:
+        """A tool called with no input streams no JSON; OpenAI clients expect "{}"."""
+        if index in self._tool_index_by_block and index not in self._blocks_with_arguments:
+            return [self._arguments_chunk(index, "{}")]
+        return []
+
+    def _arguments_chunk(self, index: int, fragment: str) -> bytes:
+        call = {"index": self._tool_index_by_block[index], "function": {"arguments": fragment}}
+        return self._chunk({"tool_calls": [call]})
 
     def _base(self) -> dict[str, Any]:
         return {

@@ -8,13 +8,18 @@ from typing import Any
 
 from ..errors import ProxyError
 
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_MAX_TOKENS = 8192
+MAX_TEMPERATURE = 1.0
 
 _DATA_URL = re.compile(r"^data:(?P<media_type>[\w/+.-]+);base64,(?P<data>.+)$", re.DOTALL)
 _SYSTEM_ROLES = frozenset({"system", "developer"})
+_UNSUPPORTED_RESPONSE_FORMATS = frozenset({"json_object", "json_schema"})
+
+Block = dict[str, Any]
 
 
 def openai_to_anthropic(body: dict[str, Any]) -> dict[str, Any]:
+    _reject_unsupported_options(body)
     system: list[str] = []
     messages: list[dict[str, Any]] = []
     for message in body.get("messages") or []:
@@ -22,25 +27,24 @@ def openai_to_anthropic(body: dict[str, Any]) -> dict[str, Any]:
         if role in _SYSTEM_ROLES:
             system.extend(_texts(message.get("content")))
         elif role == "tool":
-            _append_tool_result(messages, message)
+            _append(messages, "user", [_tool_result(message)])
         elif role == "assistant":
-            converted = _assistant(message)
-            if converted["content"]:
-                messages.append(converted)
+            _append(messages, "assistant", _assistant_blocks(message))
         elif role == "user":
-            messages.append({"role": "user", "content": _user_content(message.get("content"))})
+            blocks = _user_blocks(message.get("content"))
+            if not blocks:
+                raise ProxyError.bad_request("a user message has no content")
+            _append(messages, "user", blocks)
         else:
             raise ProxyError.bad_request(f"unsupported message role {role!r}")
 
-    result: dict[str, Any] = {"messages": messages}
+    result: dict[str, Any] = {"messages": [_compact(m) for m in messages]}
     if system:
         result["system"] = "\n\n".join(system)
     result["max_tokens"] = (
         body.get("max_completion_tokens") or body.get("max_tokens") or DEFAULT_MAX_TOKENS
     )
-    for key in ("temperature", "top_p", "stream"):
-        if body.get(key) is not None:
-            result[key] = body[key]
+    _copy_sampling(body, result)
     if (stop := body.get("stop")) is not None:
         result["stop_sequences"] = [stop] if isinstance(stop, str) else list(stop)
     if isinstance(body.get("user"), str):
@@ -50,6 +54,49 @@ def openai_to_anthropic(body: dict[str, Any]) -> dict[str, Any]:
         if (choice := _tool_choice(body)) is not None:
             result["tool_choice"] = choice
     return result
+
+
+def _reject_unsupported_options(body: dict[str, Any]) -> None:
+    if (body.get("n") or 1) > 1:
+        raise ProxyError.bad_request("n > 1 is not supported for Claude models")
+    response_format = (body.get("response_format") or {}).get("type")
+    if response_format in _UNSUPPORTED_RESPONSE_FORMATS:
+        raise ProxyError.bad_request(
+            f"response_format {response_format!r} is not supported for Claude models; "
+            "describe the JSON you want in the prompt, or use a tool"
+        )
+
+
+def _copy_sampling(body: dict[str, Any], result: dict[str, Any]) -> None:
+    """Claude takes temperature in [0, 1] and, on current models, not with top_p as well."""
+    temperature = body.get("temperature")
+    if temperature is not None:
+        if temperature > MAX_TEMPERATURE:
+            raise ProxyError.bad_request(
+                f"temperature {temperature} is above {MAX_TEMPERATURE}, the maximum for Claude"
+            )
+        result["temperature"] = temperature
+    elif body.get("top_p") is not None:
+        result["top_p"] = body["top_p"]
+    if body.get("stream") is not None:
+        result["stream"] = body["stream"]
+
+
+def _append(messages: list[dict[str, Any]], role: str, blocks: list[Block]) -> None:
+    """Claude needs alternating roles, so a turn with the same role as the last one is merged."""
+    if not blocks:
+        return
+    if messages and messages[-1]["role"] == role:
+        messages[-1]["content"].extend(blocks)
+    else:
+        messages.append({"role": role, "content": list(blocks)})
+
+
+def _compact(message: dict[str, Any]) -> dict[str, Any]:
+    content = message["content"]
+    if len(content) == 1 and content[0]["type"] == "text":
+        return {"role": message["role"], "content": content[0]["text"]}
+    return message
 
 
 def _texts(content: Any) -> list[str]:
@@ -62,16 +109,18 @@ def _texts(content: Any) -> list[str]:
     ]
 
 
-def _user_content(content: Any) -> str | list[dict[str, Any]]:
+def _user_blocks(content: Any) -> list[Block]:
     if isinstance(content, str):
-        return content
-    blocks: list[dict[str, Any]] = []
+        return [{"type": "text", "text": content}] if content else []
+    blocks: list[Block] = []
     for part in content or []:
         kind = part.get("type")
         if kind == "text":
-            blocks.append({"type": "text", "text": part.get("text", "")})
+            if part.get("text"):
+                blocks.append({"type": "text", "text": part["text"]})
         elif kind == "image_url":
-            url = part.get("image_url", {}).get("url", "")
+            image = part.get("image_url")
+            url = image if isinstance(image, str) else (image or {}).get("url", "")
             blocks.append({"type": "image", "source": _image_source(url)})
         else:
             raise ProxyError.bad_request(f"unsupported content part type {kind!r}")
@@ -81,13 +130,13 @@ def _user_content(content: Any) -> str | list[dict[str, Any]]:
 def _image_source(url: str) -> dict[str, str]:
     if match := _DATA_URL.match(url):
         return {"type": "base64", "media_type": match["media_type"], "data": match["data"]}
-    return {"type": "url", "url": url}
+    if url.startswith(("https://", "http://")):
+        return {"type": "url", "url": url}
+    raise ProxyError.bad_request("image_url must be a data URL or an http(s) URL")
 
 
-def _assistant(message: dict[str, Any]) -> dict[str, Any]:
-    blocks: list[dict[str, Any]] = [
-        {"type": "text", "text": t} for t in _texts(message.get("content"))
-    ]
+def _assistant_blocks(message: dict[str, Any]) -> list[Block]:
+    blocks: list[Block] = [{"type": "text", "text": t} for t in _texts(message.get("content"))]
     for call in message.get("tool_calls") or []:
         function = call.get("function", {})
         blocks.append(
@@ -98,7 +147,7 @@ def _assistant(message: dict[str, Any]) -> dict[str, Any]:
                 "input": _arguments(function.get("arguments")),
             }
         )
-    return {"role": "assistant", "content": blocks}
+    return blocks
 
 
 def _arguments(raw: Any) -> Any:
@@ -112,25 +161,13 @@ def _arguments(raw: Any) -> Any:
         return {"raw": raw}
 
 
-def _append_tool_result(messages: list[dict[str, Any]], message: dict[str, Any]) -> None:
-    """Results of parallel tool calls must share 1 user message, so consecutive ones merge."""
+def _tool_result(message: dict[str, Any]) -> Block:
     content = message.get("content")
-    block = {
+    return {
         "type": "tool_result",
         "tool_use_id": message.get("tool_call_id", ""),
         "content": "\n".join(_texts(content)) if isinstance(content, list) else content or "",
     }
-    previous = messages[-1] if messages else None
-    if (
-        previous is not None
-        and previous["role"] == "user"
-        and isinstance(previous["content"], list)
-        and previous["content"]
-        and all(b.get("type") == "tool_result" for b in previous["content"])
-    ):
-        previous["content"].append(block)
-    else:
-        messages.append({"role": "user", "content": [block]})
 
 
 def _tool(tool: dict[str, Any]) -> dict[str, Any]:
@@ -148,18 +185,19 @@ def _tool(tool: dict[str, Any]) -> dict[str, Any]:
 
 def _tool_choice(body: dict[str, Any]) -> dict[str, Any] | None:
     choice = body.get("tool_choice")
+    serial = body.get("parallel_tool_calls") is False
     if choice == "none":
         return {"type": "none"}
-    if choice == "required":
-        converted: dict[str, Any] = {"type": "any"}
+    if choice is None and not serial:
+        return None
+    if choice in (None, "auto"):
+        converted: dict[str, Any] = {"type": "auto"}
+    elif choice == "required":
+        converted = {"type": "any"}
     elif isinstance(choice, dict) and choice.get("type") == "function":
         converted = {"type": "tool", "name": choice.get("function", {}).get("name", "")}
-    elif choice in (None, "auto"):
-        converted = {"type": "auto"}
     else:
         raise ProxyError.bad_request(f"unsupported tool_choice {choice!r}")
-    if body.get("parallel_tool_calls") is False:
+    if serial:
         converted["disable_parallel_tool_use"] = True
-    elif choice is None:
-        return None
     return converted
