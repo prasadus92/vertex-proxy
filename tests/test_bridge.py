@@ -481,6 +481,8 @@ def test_legacy_string_image_url_is_accepted() -> None:
         ({"response_format": {"type": "json_schema", "json_schema": {}}}, "json_schema"),
         ({"response_format": {"type": "json_object"}}, "json_object"),
         ({"temperature": 1.5}, "above 1.0"),
+        ({"temperature": "0.5"}, "must be a number"),
+        ({"temperature": True}, "must be a number"),
         (
             {
                 "messages": [
