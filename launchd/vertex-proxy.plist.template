@@ -3,13 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>ai.hermes.vertex-proxy</string>
+    <string>io.github.prasadus92.vertex-proxy</string>
 
     <key>ProgramArguments</key>
     <array>
-        <!-- Path to the vertex-proxy executable in your venv.
-             If installed system-wide, use the absolute path from `which vertex-proxy`. -->
-        <string>{{INSTALL_DIR}}/.venv/bin/vertex-proxy</string>
+        <string>{{BIN}}</string>
     </array>
 
     <key>EnvironmentVariables</key>
@@ -45,9 +43,6 @@
 
     <key>StandardErrorPath</key>
     <string>{{HOME}}/Library/Logs/vertex-proxy.err</string>
-
-    <key>WorkingDirectory</key>
-    <string>{{INSTALL_DIR}}</string>
 
     <key>SoftResourceLimits</key>
     <dict>
