@@ -5,7 +5,7 @@
 [![Python 3.11 to 3.15](https://img.shields.io/badge/python-3.11%20to%203.15-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-vertex-proxy is a local proxy that lets tools built for the Anthropic, Gemini or OpenAI APIs run on Google Cloud Vertex AI. Claude Code, the official SDKs and most agent frameworks work against it without code changes.
+vertex-proxy is a local proxy that lets tools built for the Anthropic, Gemini or OpenAI APIs run on Google Cloud Vertex AI. Claude Code, the official SDKs and OpenAI-compatible agent frameworks work against it without code changes.
 
 Vertex AI authenticates with short-lived OAuth tokens from a Google Cloud credential. Most clients expect a static API key and a public API's request shape. The proxy holds the credential, refreshes the token in the background, and translates requests to Vertex's endpoints.
 
@@ -14,7 +14,7 @@ your tool  --Anthropic / Gemini / OpenAI API-->  vertex-proxy  --Google auth--> 
            http://127.0.0.1:8787
 ```
 
-Teams use it to keep model spend on a GCP bill, to use committed GCP credits or quota, or to keep traffic inside a Google Cloud project.
+Use it to keep model spend on a GCP bill, to draw on GCP credits or quota, or to keep traffic inside a Google Cloud project.
 
 ## Quickstart
 
@@ -61,7 +61,7 @@ export CLOUD_ML_REGION=global
 claude
 ```
 
-The same variables are in [`examples/claude-code-env.sh`](examples/claude-code-env.sh), together with optional model pins. Run `/status` in Claude Code to confirm the provider shows as Google Vertex AI.
+In this mode the location comes from `CLOUD_ML_REGION`, model names are Vertex IDs, and the proxy replaces only the project and the credentials, so its own location and alias settings do not apply. The same variables are in [`examples/claude-code-env.sh`](examples/claude-code-env.sh), together with optional model pins and the header to send when the proxy requires an API key. Run `/status` in Claude Code to confirm the provider shows as Google Vertex AI.
 
 Claude Code can also use the proxy as a plain Anthropic endpoint. That works for older Claude Code versions and other Anthropic clients, but Claude Code then sends beta features that Vertex rejects, so set `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`:
 
@@ -113,7 +113,7 @@ Agent frameworks and coding tools such as opencode, Cline, Continue and Hermes A
 
 ### Codex
 
-Current Codex releases talk only the OpenAI Responses API to custom providers. vertex-proxy serves Chat Completions, so Codex cannot use it yet.
+Current Codex releases use only the OpenAI Responses API with custom providers. vertex-proxy serves Chat Completions, so Codex cannot use it yet.
 
 ### Local models with Ollama
 
@@ -138,7 +138,7 @@ export VERTEX_PROXY_OLLAMA_BACKENDS='{"*": "http://localhost:11434"}'
 | `GET /health` | Liveness and a credential check | |
 | `GET /metrics` | Prometheus counters, when enabled | |
 
-Every route streams.
+The messages, generate and chat routes support streaming.
 
 ## Models
 
@@ -158,7 +158,7 @@ To add short names, put them in the config file. They are merged over the built-
 
 ## Configuration
 
-Settings come from CLI flags, then environment variables, then a `.env` file, then a TOML config file. The config file is read from `--config`, `$VERTEX_PROXY_CONFIG`, or `~/.config/vertex-proxy/config.toml`. [`examples/config.toml`](examples/config.toml) shows every option.
+CLI flags override environment variables, which override a `.env` file, which overrides the TOML config file. The config file is read from `--config`, `$VERTEX_PROXY_CONFIG`, or `$XDG_CONFIG_HOME/vertex-proxy/config.toml` (by default `~/.config/vertex-proxy/config.toml`). [`examples/config.toml`](examples/config.toml) shows every option.
 
 | Setting | Environment variable | Default |
 |---|---|---|
@@ -189,7 +189,7 @@ Errors come back in the shape of the API you called, so SDKs raise their usual e
 | 404 | The model is not enabled in Model Garden or not served in that location |
 | 429 | The quota for that model and location is exhausted; `retry-after` is passed through |
 
-Streaming requests are checked before the stream starts, so a quota error arrives as a real 429 that clients retry. The `/vertex` pass-through forwards Vertex's error bodies unchanged.
+Streaming requests are checked before the stream starts, so a quota error arrives as an HTTP 429 that clients retry. The `/vertex` pass-through forwards Vertex's error bodies unchanged.
 
 ## Docker
 

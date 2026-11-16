@@ -25,7 +25,7 @@ After changing dependencies, run `uv lock` and commit `uv.lock`. CI uses `uv syn
 ## Rules
 
 - Every behavior change gets a test in `tests/`, using the `FakeVertex` and `make_client` fixtures from `tests/conftest.py`. Check that the test fails without the change.
-- Streaming routes check the upstream status before they return a `StreamingResponse`, so errors are real HTTP errors. Keep it that way.
+- Streaming routes check the upstream status before they return a `StreamingResponse`, so upstream errors reach the client as HTTP error statuses. Keep it that way.
 - Never forward the proxy's API key or a client's `Authorization` header upstream. The `/vertex` pass-through forwards only the headers in its allowlist.
 - Model IDs come from Google's Vertex AI docs. When you change a catalog, update the source date in the comment above it.
 - Comments say only what the code cannot: a source, a constraint, a reason. Docstrings state the contract.

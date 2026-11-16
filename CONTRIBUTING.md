@@ -24,7 +24,7 @@ CI runs these on Python 3.11 to 3.15, audits the locked dependencies with pip-au
 
 The tests never call Google. `tests/conftest.py` provides a fake Vertex AI upstream (`FakeVertex`, backed by `httpx2.MockTransport`) and a fake token source. Every behavior change needs a test that fails without the change.
 
-## Running against real Vertex AI
+## Running against live Vertex AI
 
 ```bash
 uv run vertex-proxy --credentials /path/to/key.json --project-id your-project
@@ -49,11 +49,11 @@ curl http://127.0.0.1:8787/v1/chat/completions \
 
 ## Adding a model
 
-Add it to the matching dictionary in `vertex_proxy/catalog.py` and update the source date in the comment above it. Model IDs come from Google's Vertex AI model pages, not from the public Anthropic or Gemini APIs, because Vertex IDs sometimes differ. Users can also add models without a release through the config file.
+Add it to the matching dictionary in `vertex_proxy/catalog.py` and update the source date in the comment above it. Take model IDs from Google's Vertex AI model pages; they sometimes differ from the Anthropic and Gemini API IDs. Users can also add models without a release through the config file.
 
 ## Scope
 
-The proxy deliberately does not cache responses, log request or response bodies, or rewrite requests beyond what Vertex needs.
+The proxy does not cache responses, log request or response bodies, or rewrite requests beyond what Vertex needs.
 
 ## Releasing (maintainer)
 

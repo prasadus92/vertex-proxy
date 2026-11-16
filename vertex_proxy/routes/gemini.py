@@ -20,7 +20,9 @@ from .common import (
 router = dialect_router(Dialect.GOOGLE)
 
 
+# google-genai defaults to v1 and older Gemini SDKs to v1beta; both map to the same Vertex call.
 @router.post("/gemini/v1beta/models/{target:path}")
+@router.post("/gemini/v1/models/{target:path}")
 @router.post("/v1beta/models/{target:path}")
 async def generate(
     target: str, request: Request, services: Services = Depends(get_services)

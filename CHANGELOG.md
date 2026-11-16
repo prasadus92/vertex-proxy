@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The proxy API key is accepted as `Authorization: Bearer`, `x-api-key` or `x-goog-api-key`, so Anthropic and Gemini SDKs can send it.
 - Any `claude-*` model name now works without a catalog entry, and `-YYYYMMDD` suffixes are rewritten to Vertex's `@YYYYMMDD` form. Any `publisher/model` name is sent to the Vertex MaaS endpoint.
 - `--version`, and the version in `/health`.
+- `POST /gemini/v1/models/{model}:{action}`, the path current google-genai releases call, alongside `v1beta`.
 - Tagged releases also publish a multi-architecture Docker image to `ghcr.io/prasadus92/vertex-proxy`.
 - `CLAUDE.md` (with an `AGENTS.md` link) and `.claude/settings.json` for coding agents working on the repo.
 - OpenAI-to-Claude bridge parity:

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>io.github.prasadus92.vertex-proxy</string>
+    <string>{{LABEL}}</string>
 
     <key>ProgramArguments</key>
     <array>

@@ -27,12 +27,24 @@ usage: ./install.sh --credentials PATH --project PROJECT_ID [--bin PATH]
 EOF
 }
 
+absolute() {
+    (cd "$(dirname "$1")" && printf '%s/%s\n' "$(pwd)" "$(basename "$1")")
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --credentials) CREDENTIALS_PATH="$2"; shift 2;;
-        --project)     PROJECT_ID="$2"; shift 2;;
-        --bin)         BIN="$2"; shift 2;;
-        -h|--help)     usage; exit 0;;
+        --credentials|--project|--bin)
+            if [[ $# -lt 2 ]]; then
+                echo "error: $1 needs a value" >&2
+                exit 2
+            fi
+            case "$1" in
+                --credentials) CREDENTIALS_PATH="$2";;
+                --project)     PROJECT_ID="$2";;
+                --bin)         BIN="$2";;
+            esac
+            shift 2;;
+        -h|--help) usage; exit 0;;
         *) echo "unknown argument: $1" >&2; usage; exit 2;;
     esac
 done
@@ -50,6 +62,8 @@ if [[ -z "$BIN" || ! -x "$BIN" ]]; then
     echo "error: vertex-proxy not found; install it (uv tool install vertex-proxy) or pass --bin" >&2
     exit 1
 fi
+CREDENTIALS_PATH="$(absolute "$CREDENTIALS_PATH")"
+BIN="$(absolute "$BIN")"
 
 if [[ -f "$LEGACY_PLIST" ]]; then
     launchctl unload "$LEGACY_PLIST" 2>/dev/null || true
@@ -57,23 +71,26 @@ if [[ -f "$LEGACY_PLIST" ]]; then
 fi
 
 mkdir -p "$HOME/Library/LaunchAgents"
-sed \
-    -e "s|{{BIN}}|$BIN|g" \
-    -e "s|{{CREDENTIALS_PATH}}|$CREDENTIALS_PATH|g" \
-    -e "s|{{PROJECT_ID}}|$PROJECT_ID|g" \
-    -e "s|{{HOME}}|$HOME|g" \
-    "$PLIST_TEMPLATE" > "$PLIST_DEST"
-
 launchctl unload "$PLIST_DEST" 2>/dev/null || true
+cp "$PLIST_TEMPLATE" "$PLIST_DEST"
+plutil -replace Label -string "$LABEL" "$PLIST_DEST"
+plutil -replace ProgramArguments.0 -string "$BIN" "$PLIST_DEST"
+plutil -replace EnvironmentVariables.VERTEX_PROXY_CREDENTIALS_PATH -string "$CREDENTIALS_PATH" "$PLIST_DEST"
+plutil -replace EnvironmentVariables.VERTEX_PROXY_PROJECT_ID -string "$PROJECT_ID" "$PLIST_DEST"
+plutil -replace StandardOutPath -string "$HOME/Library/Logs/vertex-proxy.log" "$PLIST_DEST"
+plutil -replace StandardErrorPath -string "$HOME/Library/Logs/vertex-proxy.err" "$PLIST_DEST"
+plutil -lint -s "$PLIST_DEST"
 launchctl load "$PLIST_DEST"
 
-sleep 2
-if curl -fsS http://127.0.0.1:8787/health >/dev/null; then
-    echo "vertex-proxy is running"
-    echo "  plist: $PLIST_DEST"
-    echo "  logs:  $HOME/Library/Logs/vertex-proxy.log"
-    echo "  stop:  launchctl unload $PLIST_DEST"
-else
-    echo "warning: vertex-proxy was loaded but /health failed; see $HOME/Library/Logs/vertex-proxy.err" >&2
-    exit 1
-fi
+for _ in $(seq 1 15); do
+    if curl -fsS http://127.0.0.1:8787/health >/dev/null 2>&1; then
+        echo "vertex-proxy is running"
+        echo "  plist: $PLIST_DEST"
+        echo "  logs:  $HOME/Library/Logs/vertex-proxy.log"
+        echo "  stop:  launchctl unload $PLIST_DEST"
+        exit 0
+    fi
+    sleep 1
+done
+echo "warning: vertex-proxy was loaded but /health did not answer; see $HOME/Library/Logs/vertex-proxy.err" >&2
+exit 1
