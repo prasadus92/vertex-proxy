@@ -847,7 +847,7 @@ def test_previous_response_id_is_rejected() -> None:
 
 @pytest.mark.parametrize(
     ("effort", "sent"),
-    [("xhigh", "high"), ("minimal", "low"), ("medium", "medium"), ("none", None)],
+    [("xhigh", "high"), ("minimal", "low"), ("medium", "medium"), ("none", "none"), ("max", None)],
 )
 def test_reasoning_effort_is_mapped_to_chat_values(effort: str, sent: str | None) -> None:
     chat, _ = responses_to_chat({"model": "m", "input": "x", "reasoning": {"effort": effort}})
@@ -890,3 +890,15 @@ async def test_custom_tool_with_a_late_name_streams_no_argument_deltas() -> None
     assert not any(e["type"].startswith("response.function_call_arguments") for e in events)
     item = [e["item"] for e in events if e["type"] == "response.output_item.done"][0]
     assert (item["type"], item["input"]) == ("custom_tool_call", "x")
+
+
+async def test_fragments_repeating_their_call_id_join_one_call() -> None:
+    raw = _chat_sse(
+        _delta(tool_calls=[{"id": "a", "function": {"name": "f", "arguments": '{"x"'}}]),
+        _delta(tool_calls=[{"id": "a", "function": {"arguments": ":1}"}}]),
+        _finish("tool_calls"),
+        "[DONE]",
+    )
+    events = await _events(ResponsesStream("m", ToolNames()), raw)
+    done = [e["item"] for e in events if e["type"] == "response.output_item.done"]
+    assert [(i["call_id"], i["arguments"]) for i in done] == [("a", '{"x":1}')]

@@ -30,8 +30,9 @@ _TOOL_OUTPUT_TYPES = frozenset({"function_call_output", "custom_tool_call_output
 _SYSTEM_ROLES = frozenset({"system", "developer"})
 _TEXT_PARTS = frozenset({"input_text", "output_text", "text"})
 _CUSTOM_INPUT = "input"
-# Codex sends minimal and xhigh; Chat Completions providers accept low, medium and high.
+# Codex sends minimal and xhigh; Chat Completions providers take none, low, medium and high.
 _REASONING_EFFORT = {
+    "none": "none",
     "minimal": "low",
     "low": "low",
     "medium": "medium",

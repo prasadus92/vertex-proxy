@@ -105,8 +105,8 @@ class ResponsesStream:
             delta = choice.get("delta") or {}
             if delta.get("content"):
                 events += self._text(delta["content"])
-            for position, call in enumerate(delta.get("tool_calls") or []):
-                events += self._tool_call(call, position)
+            for call in delta.get("tool_calls") or []:
+                events += self._tool_call(call)
             if choice.get("finish_reason"):
                 self._finish_reason = choice["finish_reason"]
         return events
@@ -165,14 +165,12 @@ class ResponsesStream:
         )
         return events
 
-    def _tool_call(self, delta: dict[str, Any], position: int) -> list[bytes]:
-        """Calls are matched by index; a new id at a known index, or no index at all, is a new call."""
+    def _tool_call(self, delta: dict[str, Any]) -> list[bytes]:
+        """Matches a delta to its call by id, then by index; a new id is always a new call."""
         events: list[bytes] = []
         index = delta.get("index")
         call_id = delta.get("id")
-        call = self._call_by_index.get(index) if index is not None else None
-        if call is None and index is None and not call_id and self._calls:
-            call = self._calls[-1]
+        call = self._find_call(index, call_id)
         if call is not None and call_id and not call.has_upstream_id:
             call.call_id, call.has_upstream_id = call_id, True
         if call is None or (call_id and call_id != call.call_id):
@@ -181,7 +179,8 @@ class ResponsesStream:
                 new_id("fc"), self._claim_index(), call_id or new_id("call"), bool(call_id)
             )
             self._calls.append(call)
-            self._call_by_index[index if index is not None else -1 - position] = call
+            if index is not None:
+                self._call_by_index[index] = call
             item = tool_call_item(
                 call.item_id, call.call_id, ToolName(""), "", status="in_progress"
             )
@@ -194,6 +193,15 @@ class ResponsesStream:
         if delta.get("extra_content"):
             self._extras[call.call_id] = delta["extra_content"]
         return events + self._argument_deltas(call)
+
+    def _find_call(self, index: int | None, call_id: str | None) -> _OpenCall | None:
+        if call_id:
+            for call in self._calls:
+                if call.has_upstream_id and call.call_id == call_id:
+                    return call
+        if index is not None:
+            return self._call_by_index.get(index)
+        return self._calls[-1] if self._calls and not call_id else None
 
     def _argument_deltas(self, call: _OpenCall) -> list[bytes]:
         """Argument deltas wait until the name says whether the call is a custom tool."""
