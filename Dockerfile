@@ -3,16 +3,15 @@
 FROM python:3.15-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.13.8 /uv /bin/uv
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT=/opt/venv
 
 WORKDIR /src
-COPY pyproject.toml uv.lock README.md ./
-COPY vertex_proxy/ vertex_proxy/
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-editable --no-install-project
 
-RUN uv venv /opt/venv \
-    && uv export --frozen --no-dev --no-emit-project --format requirements.txt -o requirements.txt \
-    && uv pip install --python /opt/venv --require-hashes -r requirements.txt \
-    && uv pip install --python /opt/venv --no-deps .
+COPY README.md ./
+COPY vertex_proxy/ vertex_proxy/
+RUN uv sync --locked --no-editable
 
 FROM python:3.15-slim
 
