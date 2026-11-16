@@ -87,3 +87,16 @@ def test_raw_dialect_returns_the_upstream_body_unchanged() -> None:
 def test_anthropic_sse_errors_carry_an_event_line() -> None:
     sse = ProxyError(502, ErrorKind.UPSTREAM, "gone").to_sse(Dialect.ANTHROPIC)
     assert sse.startswith(b"event: error\ndata: ")
+
+
+def test_non_vertex_upstreams_get_no_vertex_hints() -> None:
+    body = _google(404, "model 'llama3' not found", "NOT_FOUND")
+    err = ProxyError.from_upstream(404, body, {}, UpstreamContext(model="llama3"))
+    assert err.message == "model 'llama3' not found"
+
+
+def test_global_location_hint_does_not_suggest_global() -> None:
+    ctx = UpstreamContext(project_id="p1", location="global", model="claude-opus-5-5")
+    err = ProxyError.from_upstream(404, _google(404, "not found", "NOT_FOUND"), {}, ctx)
+    assert "use the 'global' location" not in err.message
+    assert "Enable it in Model Garden." in err.message

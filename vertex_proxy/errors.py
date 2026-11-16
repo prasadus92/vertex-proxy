@@ -40,6 +40,10 @@ class ErrorKind(Enum):
         return self.value[1]
 
     @classmethod
+    def for_api_type(cls, api_type: str | None) -> ErrorKind:
+        return next((kind for kind in cls if kind.api_type == api_type), cls.UPSTREAM)
+
+    @classmethod
     def for_status(cls, status: int) -> ErrorKind:
         return _KIND_BY_STATUS.get(status) or (
             cls.UPSTREAM if status >= 500 else cls.INVALID_REQUEST
@@ -154,9 +158,13 @@ def _upstream_message(body: bytes) -> str | None:
 
 
 def _hint(kind: ErrorKind, message: str, ctx: UpstreamContext) -> str | None:
-    project = ctx.project_id or "YOUR_PROJECT"
+    """Advice for Vertex AI failures; None for other upstreams, which have no project."""
+    if ctx.project_id is None:
+        return None
+    project = ctx.project_id
     model = f"'{ctx.model}'" if ctx.model else "this model"
-    location = f"'{ctx.location}'" if ctx.location else "the configured location"
+    location = f"'{ctx.location}'"
+    try_global = "" if ctx.location == "global" else ", or use the 'global' location"
     if kind is ErrorKind.AUTHENTICATION:
         return (
             "vertex-proxy: Vertex AI rejected the access token. Check that the service-account "
@@ -180,11 +188,11 @@ def _hint(kind: ErrorKind, message: str, ctx: UpstreamContext) -> str | None:
     if kind is ErrorKind.NOT_FOUND:
         return (
             f"vertex-proxy: {model} is not available in location {location} for project "
-            f"{project}. Enable it in Model Garden, or use the 'global' location."
+            f"{project}. Enable it in Model Garden{try_global}."
         )
     if kind is ErrorKind.RATE_LIMIT:
         return (
             f"vertex-proxy: Vertex AI quota is exhausted for {model} in {location}. Retry "
-            "later, request a quota increase, or use the 'global' location."
+            f"later or request a quota increase{try_global}."
         )
     return None

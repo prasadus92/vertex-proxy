@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -10,6 +11,8 @@ from fastapi.responses import StreamingResponse
 
 from .auth import CredentialsError, TokenSource
 from .errors import Dialect, ErrorKind, ProxyError, UpstreamContext
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = httpx2.Timeout(120.0, connect=10.0)
 # A thinking model can go quiet mid-stream for longer than any fixed read window.
@@ -57,7 +60,8 @@ class Upstream:
         authenticated: bool,
         timeout: httpx2.Timeout,
     ) -> httpx2.Request:
-        merged = {"Content-Type": "application/json", **(headers or {})}
+        merged = httpx2.Headers({"content-type": "application/json"})
+        merged.update(headers or {})
         if authenticated:
             merged["Authorization"] = f"Bearer {await self.access_token()}"
         return self.http.build_request(
@@ -95,16 +99,20 @@ def relay_stream(
 ) -> StreamingResponse:
     """Stream ``chunks`` (default: the raw upstream body) to the client, then close the upstream."""
 
+    media_type = response.headers.get("content-type", "text/event-stream")
+    is_sse = media_type.startswith("text/event-stream")
+
     async def body() -> AsyncIterator[bytes]:
         try:
             async for chunk in chunks if chunks is not None else response.aiter_bytes():
                 yield chunk
         except httpx2.HTTPError as exc:
-            yield ProxyError(
-                502, ErrorKind.UPSTREAM, f"vertex-proxy: upstream stream failed: {exc}"
-            ).to_sse(dialect)
+            logger.warning("upstream stream from %s failed: %s", response.url.host, exc)
+            if is_sse:
+                yield ProxyError(
+                    502, ErrorKind.UPSTREAM, f"vertex-proxy: upstream stream failed: {exc}"
+                ).to_sse(dialect)
         finally:
             await response.aclose()
 
-    media_type = response.headers.get("content-type", "text/event-stream")
     return StreamingResponse(body(), media_type=media_type)

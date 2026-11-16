@@ -18,9 +18,10 @@ async def health(services: Services = Depends(get_services)) -> JSONResponse:
         await services.upstream.access_token()
     except ProxyError as exc:
         return JSONResponse({"status": "unhealthy", "error": exc.message}, status_code=503)
-    return JSONResponse(
-        {"status": "ok", "project": services.endpoints.project_id, "version": __version__}
-    )
+    body = {"status": "ok", "version": __version__}
+    if not services.settings.api_key:
+        body["project"] = services.endpoints.project_id
+    return JSONResponse(body)
 
 
 @router.get("/metrics")

@@ -56,14 +56,19 @@ def test_parameters_are_mapped() -> None:
         }
     )
     assert body["max_tokens"] == 50
-    assert (body["temperature"], body["top_p"], body["stream"]) == (0.2, 0.9, True)
+    assert (body["temperature"], body["stream"]) == (0.2, True)
+    assert "top_p" not in body
     assert body["stop_sequences"] == ["END"]
     assert body["metadata"] == {"user_id": "u-1"}
     assert "stream_options" not in body
 
 
 def test_max_tokens_has_a_default() -> None:
-    assert openai_to_anthropic({"messages": []})["max_tokens"] == 4096
+    assert openai_to_anthropic({"messages": []})["max_tokens"] == 8192
+
+
+def test_top_p_is_kept_without_temperature() -> None:
+    assert openai_to_anthropic({"messages": [], "top_p": 0.5})["top_p"] == 0.5
 
 
 def test_tools_and_tool_choice_are_translated() -> None:
@@ -131,7 +136,7 @@ def test_assistant_tool_calls_and_parallel_results() -> None:
             ]
         }
     )
-    assistant, results, follow_up = body["messages"][1:]
+    assistant, results = body["messages"][1:]
     assert assistant["content"] == [
         {"type": "tool_use", "id": "c1", "name": "get_weather", "input": {"city": "Oslo"}},
         {"type": "tool_use", "id": "c2", "name": "get_weather", "input": {"raw": "not json"}},
@@ -141,9 +146,9 @@ def test_assistant_tool_calls_and_parallel_results() -> None:
         "content": [
             {"type": "tool_result", "tool_use_id": "c1", "content": "4C"},
             {"type": "tool_result", "tool_use_id": "c2", "content": "9C"},
+            {"type": "text", "text": "thanks"},
         ],
     }
-    assert follow_up == {"role": "user", "content": "thanks"}
 
 
 def test_empty_assistant_turns_are_dropped() -> None:
@@ -394,7 +399,10 @@ async def test_no_usage_chunk_by_default() -> None:
 async def test_stream_error_event_is_forwarded() -> None:
     lines = _events({"type": "error", "error": {"type": "overloaded_error", "message": "busy"}})
     chunks = await _collect(StreamTranslator("m"), lines)
-    assert chunks == [{"error": {"type": "overloaded_error", "message": "busy"}}, "[DONE]"]
+    assert chunks == [
+        {"error": {"message": "busy", "type": "overloaded_error", "code": "unavailable"}},
+        "[DONE]",
+    ]
 
 
 def test_openai_route_streams_tool_calls_end_to_end(
@@ -424,3 +432,127 @@ async def test_nothing_is_emitted_after_message_stop() -> None:
         {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "late"}}
     )
     assert await _collect(StreamTranslator("m"), lines) == ["[DONE]"]
+
+
+def test_consecutive_turns_with_the_same_role_are_merged() -> None:
+    body = openai_to_anthropic(
+        {
+            "messages": [
+                {"role": "user", "content": "a"},
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": ""}, {"type": "text", "text": "b"}],
+                },
+                {"role": "assistant", "content": "c"},
+                {"role": "assistant", "content": "d"},
+            ]
+        }
+    )
+    assert body["messages"] == [
+        {"role": "user", "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]},
+        {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "c"}, {"type": "text", "text": "d"}],
+        },
+    ]
+
+
+@pytest.mark.parametrize("content", ["", [], [{"type": "text", "text": ""}]])
+def test_empty_user_messages_are_rejected(content: Any) -> None:
+    with pytest.raises(ProxyError, match="no content"):
+        openai_to_anthropic({"messages": [{"role": "user", "content": content}]})
+
+
+def test_legacy_string_image_url_is_accepted() -> None:
+    body = openai_to_anthropic(
+        {
+            "messages": [
+                {"role": "user", "content": [{"type": "image_url", "image_url": "https://x/y.png"}]}
+            ]
+        }
+    )
+    assert body["messages"][0]["content"][0]["source"] == {"type": "url", "url": "https://x/y.png"}
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ({"n": 2}, "n > 1"),
+        ({"response_format": {"type": "json_schema", "json_schema": {}}}, "json_schema"),
+        ({"response_format": {"type": "json_object"}}, "json_object"),
+        ({"temperature": 1.5}, "above 1.0"),
+        (
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "image_url", "image_url": {"url": "ftp://x"}}],
+                    }
+                ]
+            },
+            "data URL",
+        ),
+    ],
+)
+def test_options_claude_cannot_honor_are_rejected(extra: dict[str, Any], message: str) -> None:
+    with pytest.raises(ProxyError, match=message):
+        openai_to_anthropic({"messages": [], **extra})
+
+
+def test_text_response_format_and_single_choice_are_fine() -> None:
+    body = openai_to_anthropic({"messages": [], "n": 1, "response_format": {"type": "text"}})
+    assert "response_format" not in body
+
+
+async def test_tool_without_arguments_streams_an_empty_object() -> None:
+    lines = _events(
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "tool_use", "id": "t", "name": "now"},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": ""},
+        },
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_stop"},
+    )
+    chunks = await _collect(StreamTranslator("m"), lines)
+    args = [c["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"] for c in chunks[:-1]]
+    assert "".join(args) == "{}"
+
+
+async def test_tool_with_arguments_gets_no_extra_object() -> None:
+    lines = _events(
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "tool_use", "id": "t", "name": "f"},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": '{"a":1}'},
+        },
+        {"type": "content_block_stop", "index": 0},
+    )
+    chunks = await _collect(StreamTranslator("m"), lines)
+    args = [c["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"] for c in chunks]
+    assert "".join(args) == '{"a":1}'
+
+
+async def test_null_usage_values_do_not_erase_counts() -> None:
+    lines = _events(
+        {"type": "message_start", "message": {"id": "msg_9", "usage": {"input_tokens": 100}}},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"input_tokens": None, "output_tokens": 5},
+        },
+        {"type": "message_stop"},
+    )
+    chunks = await _collect(StreamTranslator("m", include_usage=True), lines)
+    assert chunks[-2]["usage"]["prompt_tokens"] == 100
+    assert chunks[0]["id"] == "chatcmpl-msg_9"
