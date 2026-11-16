@@ -1,92 +1,69 @@
 # Contributing
 
-Thanks for your interest. This is a small project maintained in spare time. Contributions welcome via pull request.
+Pull requests are welcome. For a new feature, open an issue first so we can agree on the design.
 
-## Dev setup
+## Setup
 
 The project uses [uv](https://docs.astral.sh/uv/) and a committed `uv.lock`.
 
-```
+```bash
 git clone https://github.com/prasadus92/vertex-proxy.git
 cd vertex-proxy
 uv sync --extra dev
 ```
 
-## Running tests
+## Checks
 
-```
+```bash
 uv run pytest
 uv run ruff check vertex_proxy tests
 uv run ruff format --check vertex_proxy tests
 ```
 
-Tests are pure unit / mocked; they don't hit real GCP. To smoke-test against live Vertex AI you need real credentials, so do it manually (see "Running locally against real Vertex" below); CI stays mock-only.
+CI runs these on Python 3.11 to 3.15, audits the locked dependencies with pip-audit, and builds the Docker image.
 
-## Running locally against real Vertex
+The tests never call Google. `tests/conftest.py` provides a fake Vertex AI upstream (`FakeVertex`, backed by `httpx2.MockTransport`) and a fake token source. Every behavior change needs a test that fails without the change.
 
-```
-export VERTEX_PROXY_CREDENTIALS_PATH=/path/to/gcp-key.json
-export VERTEX_PROXY_PROJECT_ID=your-project
-uv run vertex-proxy
-```
+## Running against real Vertex AI
 
-Then in another terminal:
-
-```
+```bash
+uv run vertex-proxy --credentials /path/to/key.json --project-id your-project
 curl http://127.0.0.1:8787/health
-curl -X POST http://127.0.0.1:8787/gemini/v1beta/models/gemini-2.5-flash:generateContent \
+curl http://127.0.0.1:8787/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}'
+  -d '{"model": "gemini-3.5-flash", "messages": [{"role": "user", "content": "hi"}]}'
 ```
 
-## Style
+## Code layout
 
-- Line length: 100 chars
-- Format: `ruff format`
-- Lint: `ruff check`
+| Path | Job |
+|---|---|
+| `vertex_proxy/config.py` | Settings and the TOML config file |
+| `vertex_proxy/catalog.py` | Built-in models and model name resolution |
+| `vertex_proxy/vertex.py` | Vertex AI URLs per location |
+| `vertex_proxy/auth.py` | Credentials and token refresh |
+| `vertex_proxy/errors.py` | Upstream errors, hints and per-API error shapes |
+| `vertex_proxy/upstream.py` | Authenticated upstream calls and stream relaying |
+| `vertex_proxy/bridge/` | OpenAI Chat Completions to Anthropic Messages translation |
+| `vertex_proxy/routes/` | 1 router per API surface |
+
+## Adding a model
+
+Add it to the matching dictionary in `vertex_proxy/catalog.py` and update the source date in the comment above it. Model IDs come from Google's Vertex AI model pages, not from the public Anthropic or Gemini APIs, because Vertex IDs sometimes differ. Users can also add models without a release through the config file.
 
 ## Scope
 
-This project intentionally does not:
-
-- Authenticate incoming requests by default (it's a local-loopback proxy; optional bearer-token auth is available via `VERTEX_PROXY_API_KEY` for remote deploys)
-- Do request transformation beyond what Vertex requires (e.g., Anthropic `model` field → URL path)
-- Cache responses
-- Log request bodies (privacy + credit safety)
-
-If you want any of the above, file an issue first so we can discuss design.
-
-## Adding a new model
-
-Most additions only require editing `vertex_proxy/config.py`:
-
-- Claude model → add to `anthropic_model_aliases`
-- Gemini model → add to `gemini_model_aliases`
-- MaaS partner model (Kimi, GLM, MiniMax, Qwen, Grok, …) → add to `maas_model_aliases`
-
-For a genuinely new model family with a different API shape, open an issue first.
+The proxy deliberately does not cache responses, log request or response bodies, or rewrite requests beyond what Vertex needs.
 
 ## Releasing (maintainer)
 
-Releases publish to PyPI via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC), so there is no API token to store as a secret.
+Pushing a `v*` tag runs `.github/workflows/release.yml`. It builds the package and publishes it to PyPI through [Trusted Publishing](https://docs.pypi.org/trusted-publishers/), and it publishes the Docker image to `ghcr.io/prasadus92/vertex-proxy`. No API tokens are stored.
 
-One-time setup:
-
-1. On PyPI, add a trusted publisher at https://pypi.org/manage/account/publishing/ with:
-   - PyPI project name: `vertex-proxy`
-   - Owner: `prasadus92`
-   - Repository: `vertex-proxy`
-   - Workflow name: `release.yml`
-   - Environment name: `pypi`
-2. (Recommended) Create a GitHub environment named `pypi` under repo Settings to gate the publish job.
-
-To cut a release:
-
-1. Bump `__version__` in `vertex_proxy/__init__.py`. That is the single source of truth; `pyproject.toml` and the running app's `version` both read from it.
-2. Move the `[Unreleased]` entries in `CHANGELOG.md` under a new dated version heading.
-3. Commit, then tag and push:
+1. Set `__version__` in `vertex_proxy/__init__.py`. `pyproject.toml` and the app read it from there.
+2. Move the `[Unreleased]` entries in `CHANGELOG.md` under a dated version heading.
+3. Merge that change, then tag the merge commit on `main` and push the tag:
+   ```bash
+   git tag -s v0.5.0 -m "v0.5.0"
+   git push origin v0.5.0
    ```
-   git tag v0.2.0
-   git push origin v0.2.0
-   ```
-4. The `Release` workflow builds the sdist + wheel, runs `twine check`, and publishes to PyPI.
+4. Create the GitHub release from the tag, with the changelog section as its notes.

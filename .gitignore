@@ -37,3 +37,6 @@ launchd/*.plist
 
 # Logs
 *.log
+
+# Claude Code personal settings
+.claude/settings.local.json
