@@ -19,8 +19,8 @@ services:
     environment:
       VERTEX_PROXY_CREDENTIALS_PATH: /app/credentials/gcp-key.json
       VERTEX_PROXY_PROJECT_ID: ${VERTEX_PROXY_PROJECT_ID}
-      VERTEX_PROXY_ANTHROPIC_REGION: ${VERTEX_PROXY_ANTHROPIC_REGION:-us-east5}
-      VERTEX_PROXY_GEMINI_REGION: ${VERTEX_PROXY_GEMINI_REGION:-us-central1}
+      VERTEX_PROXY_ANTHROPIC_REGION: ${VERTEX_PROXY_ANTHROPIC_REGION:-global}
+      VERTEX_PROXY_GEMINI_REGION: ${VERTEX_PROXY_GEMINI_REGION:-global}
       VERTEX_PROXY_LOG_LEVEL: ${VERTEX_PROXY_LOG_LEVEL:-info}
       # Ollama backend: auto-discover all models from the host's Ollama
       VERTEX_PROXY_OLLAMA_BACKENDS: '{"*": "http://host.docker.internal:11434"}'
