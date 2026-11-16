@@ -71,6 +71,8 @@ def _copy_sampling(body: dict[str, Any], result: dict[str, Any]) -> None:
     """Claude takes temperature in [0, 1] and, on current models, not with top_p as well."""
     temperature = body.get("temperature")
     if temperature is not None:
+        if isinstance(temperature, bool) or not isinstance(temperature, int | float):
+            raise ProxyError.bad_request("temperature must be a number")
         if temperature > MAX_TEMPERATURE:
             raise ProxyError.bad_request(
                 f"temperature {temperature} is above {MAX_TEMPERATURE}, the maximum for Claude"
