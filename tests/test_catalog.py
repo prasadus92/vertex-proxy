@@ -135,10 +135,16 @@ def test_custom_provider_does_not_shadow_anthropic_or_gemini() -> None:
 
     catalog = _catalog()
     catalog.custom["claude-opus-5-5"] = CustomProviderInfo(
-        provider_name="fake", base_url="http://x", api_key="k", upstream_model="x",
+        provider_name="fake",
+        base_url="http://x",
+        api_key="k",
+        upstream_model="x",
     )
     catalog.custom["gemini-3.5-flash"] = CustomProviderInfo(
-        provider_name="fake", base_url="http://x", api_key="k", upstream_model="x",
+        provider_name="fake",
+        base_url="http://x",
+        api_key="k",
+        upstream_model="x",
     )
     assert catalog.chat_route("claude-opus-5-5").provider is Provider.ANTHROPIC
     assert catalog.chat_route("gemini-3.5-flash").provider is Provider.GEMINI
@@ -149,7 +155,10 @@ def test_custom_provider_shadows_maas() -> None:
 
     catalog = _catalog()
     catalog.custom["glm-5.2"] = CustomProviderInfo(
-        provider_name="direct-glm", base_url="http://x", api_key="k", upstream_model="glm-5.2",
+        provider_name="direct-glm",
+        base_url="http://x",
+        api_key="k",
+        upstream_model="glm-5.2",
     )
     route = catalog.chat_route("glm-5.2")
     assert route.provider is Provider.CUSTOM
@@ -165,7 +174,9 @@ async def test_discover_custom_providers_explicit_models() -> None:
             }
         }
     )
-    async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda r: httpx2.Response(200))) as http:
+    async with httpx2.AsyncClient(
+        transport=httpx2.MockTransport(lambda r: httpx2.Response(200))
+    ) as http:
         await catalog.discover_custom_providers(http)
     assert "minimax-m3" in catalog.custom
     assert "minimax-m1" in catalog.custom
@@ -174,9 +185,9 @@ async def test_discover_custom_providers_explicit_models() -> None:
 
 async def test_discover_custom_providers_auto_discovery() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
-        return httpx2.Response(200, json={
-            "data": [{"id": "model-a"}, {"id": "model-b"}, {"id": ""}]
-        })
+        return httpx2.Response(
+            200, json={"data": [{"id": "model-a"}, {"id": "model-b"}, {"id": ""}]}
+        )
 
     catalog = _catalog(
         custom_providers={
@@ -195,7 +206,10 @@ def test_custom_provider_entries_listed() -> None:
 
     catalog = _catalog()
     catalog.custom["my-model"] = CustomProviderInfo(
-        provider_name="acme", base_url="http://x", api_key="k", upstream_model="upstream-m",
+        provider_name="acme",
+        base_url="http://x",
+        api_key="k",
+        upstream_model="upstream-m",
     )
     entries = catalog.entries(Provider.CUSTOM)
     ids = [e["id"] for e in entries]

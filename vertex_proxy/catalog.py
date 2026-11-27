@@ -146,7 +146,11 @@ class ModelCatalog:
             (Provider.GEMINI, self.gemini, s.gemini_region),
             (Provider.MAAS, self.maas, s.maas_region),
             (Provider.OLLAMA, {name: name for name in self.ollama}, None),
-            (Provider.CUSTOM, {alias: info.upstream_model for alias, info in self.custom.items()}, None),
+            (
+                Provider.CUSTOM,
+                {alias: info.upstream_model for alias, info in self.custom.items()},
+                None,
+            ),
         ]
         return [
             _entry(alias, target, provider, region)
@@ -190,12 +194,16 @@ class ModelCatalog:
                             models[model_id] = model_id
                     logger.info(
                         "custom_provider %s: discovered %d models from %s",
-                        provider_name, len(models), base_url,
+                        provider_name,
+                        len(models),
+                        base_url,
                     )
                 except Exception as exc:
                     logger.warning(
                         "custom_provider %s: failed to discover models from %s: %s",
-                        provider_name, base_url, exc,
+                        provider_name,
+                        base_url,
+                        exc,
                     )
                     continue
 
@@ -208,7 +216,9 @@ class ModelCatalog:
                 )
             logger.info(
                 "custom_provider %s: %d models registered: %s",
-                provider_name, len(models), sorted(models.keys()),
+                provider_name,
+                len(models),
+                sorted(models.keys()),
             )
 
     async def discover_ollama(self, http: httpx2.AsyncClient) -> None:
