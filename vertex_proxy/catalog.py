@@ -67,6 +67,17 @@ class Provider(StrEnum):
     GEMINI = "gemini-vertex"
     MAAS = "maas-vertex"
     OLLAMA = "ollama"
+    CUSTOM = "custom"
+
+
+@dataclass(frozen=True)
+class CustomProviderInfo:
+    """Connection details for a custom OpenAI-compatible provider."""
+
+    provider_name: str
+    base_url: str
+    api_key: str
+    upstream_model: str
 
 
 @dataclass(frozen=True)
@@ -76,6 +87,7 @@ class ChatRoute:
     provider: Provider
     upstream_model: str
     ollama_url: str | None = None
+    custom: CustomProviderInfo | None = None
 
 
 class ModelCatalog:
@@ -87,6 +99,7 @@ class ModelCatalog:
         self.gemini = {**GEMINI_MODELS, **settings.gemini_model_aliases}
         self.maas = {**MAAS_MODELS, **settings.maas_model_aliases}
         self.ollama: dict[str, str] = {}
+        self.custom: dict[str, CustomProviderInfo] = {}
 
     def anthropic_model(self, name: str) -> str | None:
         """Vertex model ID for a Claude model name, or None when the name is not a Claude model."""
@@ -101,16 +114,22 @@ class ModelCatalog:
         return self.gemini.get(name, name)
 
     def chat_route(self, name: str) -> ChatRoute | None:
-        """Route for an OpenAI-format request. Vertex models are matched before Ollama ones."""
+        """Route for an OpenAI-format request. Vertex models are matched before Ollama ones.
+
+        Custom providers sit between Ollama and MaaS: they override MaaS aliases
+        but not Anthropic, Gemini or Ollama."""
         if (claude := self.anthropic_model(name)) is not None:
             return ChatRoute(Provider.ANTHROPIC, claude)
         bare = name.removeprefix("google/")
         if bare in self.gemini or bare.startswith("gemini-"):
             return ChatRoute(Provider.GEMINI, f"google/{self.gemini_model(bare)}")
-        if name in self.maas:
-            return ChatRoute(Provider.MAAS, self.maas[name])
         if name in self.ollama:
             return ChatRoute(Provider.OLLAMA, name, ollama_url=self.ollama[name])
+        if name in self.custom:
+            info = self.custom[name]
+            return ChatRoute(Provider.CUSTOM, info.upstream_model, custom=info)
+        if name in self.maas:
+            return ChatRoute(Provider.MAAS, self.maas[name])
         if "/" in name:
             return ChatRoute(Provider.MAAS, name)
         return None
@@ -127,6 +146,7 @@ class ModelCatalog:
             (Provider.GEMINI, self.gemini, s.gemini_region),
             (Provider.MAAS, self.maas, s.maas_region),
             (Provider.OLLAMA, {name: name for name in self.ollama}, None),
+            (Provider.CUSTOM, {alias: info.upstream_model for alias, info in self.custom.items()}, None),
         ]
         return [
             _entry(alias, target, provider, region)
@@ -134,6 +154,62 @@ class ModelCatalog:
             if provider in wanted
             for alias, target in models.items()
         ]
+
+    async def discover_custom_providers(self, http: httpx2.AsyncClient) -> None:
+        """Register models from custom OpenAI-compatible providers.
+
+        Each provider entry must have 'base_url' and 'api_key'. 'models' is a dict
+        mapping alias → upstream model ID. If 'models' is empty, we attempt to
+        auto-discover via GET {base_url}/models.
+        """
+        self.custom.clear()
+        for provider_name, provider_cfg in self._settings.custom_providers.items():
+            base_url = provider_cfg.get("base_url", "").rstrip("/")
+            api_key = provider_cfg.get("api_key", "")
+            models: dict[str, str] = dict(provider_cfg.get("models", {}))
+
+            if not base_url:
+                logger.warning("custom_provider %s: missing base_url, skipping", provider_name)
+                continue
+            if not api_key:
+                logger.warning("custom_provider %s: missing api_key, skipping", provider_name)
+                continue
+
+            if not models:
+                try:
+                    resp = await http.get(
+                        f"{base_url}/models",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        timeout=10.0,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    for m in data.get("data", []):
+                        model_id = m.get("id", "")
+                        if model_id:
+                            models[model_id] = model_id
+                    logger.info(
+                        "custom_provider %s: discovered %d models from %s",
+                        provider_name, len(models), base_url,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "custom_provider %s: failed to discover models from %s: %s",
+                        provider_name, base_url, exc,
+                    )
+                    continue
+
+            for alias, upstream_id in models.items():
+                self.custom[alias] = CustomProviderInfo(
+                    provider_name=provider_name,
+                    base_url=base_url,
+                    api_key=api_key,
+                    upstream_model=upstream_id,
+                )
+            logger.info(
+                "custom_provider %s: %d models registered: %s",
+                provider_name, len(models), sorted(models.keys()),
+            )
 
     async def discover_ollama(self, http: httpx2.AsyncClient) -> None:
         """Register configured Ollama models; a "*" key lists every model on that server."""
@@ -158,6 +234,7 @@ _OWNERS = {
     Provider.ANTHROPIC: "anthropic",
     Provider.GEMINI: "google",
     Provider.OLLAMA: "ollama",
+    Provider.CUSTOM: "custom",
 }
 
 
@@ -172,7 +249,7 @@ def _entry(alias: str, target: str, provider: Provider, region: str | None) -> d
         "owned_by": owner,
         "provider": provider.value,
     }
-    if provider is not Provider.OLLAMA:
+    if provider not in (Provider.OLLAMA, Provider.CUSTOM):
         entry["vertex_model_id"] = target
         entry["region"] = region
     return entry

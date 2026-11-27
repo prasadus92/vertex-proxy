@@ -51,6 +51,8 @@ class ChatService:
                 url, payload, context = self._anthropic_call(body, route, stream=False)
                 response = await self._services.upstream.post(url, json=payload, context=context)
                 result = anthropic_to_openai(json_payload(response), model)
+            elif route.provider is Provider.CUSTOM:
+                result, response = await self._custom_complete(body, route)
             else:
                 url, context, authenticated = self._openai_target(route)
                 response = await self._services.upstream.post(
@@ -74,6 +76,8 @@ class ChatService:
                 include_usage = bool((body.get("stream_options") or {}).get("include_usage"))
                 translator = StreamTranslator(model, include_usage=include_usage)
                 chunks = translator.translate(response.aiter_lines())
+            elif route.provider is Provider.CUSTOM:
+                response, chunks = await self._custom_stream(body, route)
             else:
                 url, context, authenticated = self._openai_target(route)
                 response = await upstream.open_stream(
@@ -95,6 +99,40 @@ class ChatService:
         endpoints = self._services.endpoints
         url = endpoints.anthropic(location, route.upstream_model, stream=stream)
         return url, payload, UpstreamContext(endpoints.project_id, location, route.upstream_model)
+
+    async def _custom_complete(
+        self, body: dict[str, Any], route: ChatRoute
+    ) -> tuple[dict[str, Any], httpx2.Response]:
+        """Forward a non-streaming request to a custom OpenAI-compatible provider."""
+        assert route.custom is not None
+        info = route.custom
+        url = f"{info.base_url}/chat/completions"
+        context = UpstreamContext(model=info.upstream_model)
+        response = await self._services.upstream.post(
+            url,
+            json={**body, "model": info.upstream_model},
+            headers={"Authorization": f"Bearer {info.api_key}"},
+            context=context,
+            authenticated=False,
+        )
+        return json_payload(response), response
+
+    async def _custom_stream(
+        self, body: dict[str, Any], route: ChatRoute
+    ) -> tuple[httpx2.Response, AsyncIterator[bytes]]:
+        """Forward a streaming request to a custom OpenAI-compatible provider."""
+        assert route.custom is not None
+        info = route.custom
+        url = f"{info.base_url}/chat/completions"
+        context = UpstreamContext(model=info.upstream_model)
+        response = await self._services.upstream.open_stream(
+            url,
+            json={**body, "model": info.upstream_model, "stream": True},
+            headers={"Authorization": f"Bearer {info.api_key}"},
+            context=context,
+            authenticated=False,
+        )
+        return response, response.aiter_bytes()
 
     def _openai_target(self, route: ChatRoute) -> tuple[str, UpstreamContext, bool]:
         if route.provider is Provider.OLLAMA:

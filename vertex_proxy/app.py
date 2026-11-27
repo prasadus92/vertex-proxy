@@ -48,6 +48,7 @@ def build_app(
         try:
             async with httpx2.AsyncClient(timeout=DEFAULT_TIMEOUT, transport=transport) as http:
                 await catalog.discover_ollama(http)
+                await catalog.discover_custom_providers(http)
                 app.state.services = Services(
                     settings=settings,
                     catalog=catalog,
